@@ -1,12 +1,11 @@
 import type { ChatMessage, ModelConfig } from "./types";
-import { completionsUrl } from "./settings";
+import { normalizeEndpoint } from "./settings";
 import { safeJsonParse } from "./utils";
 
 export interface ChatRequest {
   config: ModelConfig;
   messages: ChatMessage[];
   signal?: AbortSignal;
-  stream?: boolean;
   onDelta?: (delta: string, full: string) => void;
 }
 
@@ -23,40 +22,43 @@ interface CompletionChunk {
   error?: { message?: string };
 }
 
-function buildBody(
-  config: ModelConfig,
-  messages: ChatMessage[],
-  stream: boolean,
-): { body: Record<string, unknown>; paramsError?: string } {
+type BuiltBody =
+  | { ok: true; body: Record<string, unknown>; model: string; stream: boolean }
+  | { ok: false; error: string };
+
+/**
+ * 参数 JSON 整体就是请求体：model / stream / temperature / top_p 等原样透传，
+ * 应用只注入 messages，并给 stream 补上缺省 true（渲染侧恒为流式）。
+ */
+function buildBody(config: ModelConfig, messages: ChatMessage[]): BuiltBody {
   const parsed = safeJsonParse<Record<string, unknown>>(config.params || "{}");
-  if (!parsed.ok) {
-    return { body: {}, paramsError: `额外参数不是合法 JSON：${parsed.error}` };
-  }
+  if (!parsed.ok) return { ok: false, error: `额外参数不是合法 JSON：${parsed.error}` };
   const extra = parsed.value && typeof parsed.value === "object" ? parsed.value : {};
-  // 用户参数在前，核心字段在后：避免 params 里误写的 model/messages 覆盖真实请求
-  return { body: { ...extra, model: config.model, messages, stream } };
+  const model = typeof extra.model === "string" ? extra.model.trim() : "";
+  if (!model) return { ok: false, error: "额外参数里缺少 model，无法发起请求" };
+  const stream = extra.stream !== false;
+  return { ok: true, body: { ...extra, stream, messages }, model, stream };
 }
 
 export async function chatCompletion({
   config,
   messages,
   signal,
-  stream = true,
   onDelta,
 }: ChatRequest): Promise<ChatResponse> {
-  if (!config.baseUrl.trim()) throw new Error("尚未配置 Base URL");
-  if (!config.model.trim()) throw new Error("尚未配置模型名称");
+  const endpoint = normalizeEndpoint(config.endpoint);
+  if (!endpoint) throw new Error("尚未配置 endpoint");
 
-  const { body, paramsError } = buildBody(config, messages, stream);
-  if (paramsError) throw new Error(paramsError);
+  const built = buildBody(config, messages);
+  if (!built.ok) throw new Error(built.error);
 
-  const res = await fetch(completionsUrl(config.baseUrl), {
+  const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(built.body),
     signal,
   });
 
@@ -77,13 +79,13 @@ export async function chatCompletion({
   }
 
   const contentType = res.headers.get("content-type") || "";
-  // 部分网关即使 stream=true 也返回整包 JSON
-  if (!stream || !res.body || !contentType.includes("event-stream")) {
+  // 参数里关掉了 stream，或部分网关即使 stream=true 也返回整包 JSON
+  if (!built.stream || !res.body || !contentType.includes("event-stream")) {
     const json = (await res.json()) as CompletionChunk;
     if (json.error?.message) throw new Error(json.error.message);
     const content = json.choices?.[0]?.message?.content ?? "";
     onDelta?.(content, content);
-    return { content, aborted: false, model: config.model, usage: json.usage };
+    return { content, aborted: false, model: built.model, usage: json.usage };
   }
 
   const reader = res.body.getReader();
@@ -134,5 +136,5 @@ export async function chatCompletion({
     reader.releaseLock();
   }
 
-  return { content: full, aborted, model: config.model, usage };
+  return { content: full, aborted, model: built.model, usage };
 }

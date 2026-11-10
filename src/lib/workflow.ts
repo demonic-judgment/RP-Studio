@@ -1,6 +1,7 @@
 import { chatCompletion } from "./llm";
 import { interpolate } from "./context";
 import { runScript } from "./script";
+import { paramModel } from "./settings";
 import type {
   Character,
   ChatMessage,
@@ -133,7 +134,6 @@ export async function runWorkflow(params: {
   userName: string;
   model: ModelConfig;
   signal?: AbortSignal;
-  stream: boolean;
   scriptTimeoutMs: number;
   onEvent?: (event: WorkflowRunEvent) => void;
 }): Promise<WorkflowRunResult> {
@@ -145,7 +145,6 @@ export async function runWorkflow(params: {
     userName,
     model,
     signal,
-    stream,
     scriptTimeoutMs,
     onEvent,
   } = params;
@@ -266,13 +265,12 @@ export async function runWorkflow(params: {
               nodeModel = { ...model, params: JSON.stringify(merged) };
             }
           }
-          pushLog(`调用 ${nodeModel.model} · ${next.messages.length} 条消息`);
+          pushLog(`调用 ${paramModel(nodeModel.params)} · ${next.messages.length} 条消息`);
           const started = Date.now();
           const response = await chatCompletion({
             config: nodeModel,
             messages: next.messages,
             signal,
-            stream,
             onDelta: (_delta, full) => {
               onEvent?.({ kind: "delta", nodeId: node.id, nodeTitle: node.title, message: full });
             },

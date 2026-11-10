@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { Eye, EyeOff, Plug, Plus, Trash2, X } from "lucide-react";
 import { useStore } from "../../lib/store";
-import { DEFAULT_PARAMS, activeProfile, createProfile, profileHost } from "../../lib/settings";
+import {
+  DEFAULT_ENDPOINT,
+  DEFAULT_PARAMS,
+  activeProfile,
+  createProfile,
+  endpointHost,
+  looksLikeBaseUrl,
+  normalizeEndpoint,
+  paramModel,
+} from "../../lib/settings";
 import { chatCompletion } from "../../lib/llm";
 import { cn, safeJsonParse } from "../../lib/utils";
 import type { ModelProfile } from "../../lib/types";
@@ -11,6 +20,13 @@ import { Modal } from "../ui/Modal";
 import { Pill } from "../ui/Tabs";
 
 type TestResult = { ok: boolean; text: string };
+
+/** 测试连接时的参数：沿用档案参数，只把输出长度压到最小 */
+function testParams(raw: string): string {
+  const parsed = safeJsonParse<Record<string, unknown>>(raw || "{}");
+  const base = parsed.ok && parsed.value && typeof parsed.value === "object" ? parsed.value : {};
+  return JSON.stringify({ ...base, max_tokens: 24 });
+}
 
 /**
  * 设置抽屉的「模型」页签：列表负责切换当前档案与删除，
@@ -37,6 +53,14 @@ export function ModelSettings() {
   const isNew = !!draft && !settings.models.some((m) => m.id === draft.id);
   const dirty = !!draft && JSON.stringify(draft) !== baseline;
   const paramsCheck = safeJsonParse<Record<string, unknown>>(draft?.params ?? "{}");
+  const draftModel = paramModel(draft?.params ?? "");
+  /** 参数合法但没填 model：请求必失败，按错误处理 */
+  const paramsError = !paramsCheck.ok
+    ? `JSON 无效：${paramsCheck.error}`
+    : draftModel
+      ? undefined
+      : "参数里需要 model，它是请求体里的模型名";
+  const baseUrlWarning = !!draft && looksLikeBaseUrl(draft.endpoint);
 
   const openEditor = (profile: ModelProfile) => {
     setDraft({ ...profile });
@@ -59,10 +83,10 @@ export function ModelSettings() {
 
   const handleSave = async () => {
     if (!draft) return;
-    const model = draft.model.trim();
+    const model = paramModel(draft.params);
     await saveModel({
       ...draft,
-      model,
+      endpoint: normalizeEndpoint(draft.endpoint),
       name: draft.name.trim() || model || "未命名模型",
     });
     toast({ title: isNew ? "模型档案已添加" : "模型档案已保存", variant: "success" });
@@ -82,9 +106,12 @@ export function ModelSettings() {
     setTestResult(null);
     try {
       const result = await chatCompletion({
-        config: { ...draft, params: JSON.stringify({ max_tokens: 24 }) },
+        config: {
+          endpoint: normalizeEndpoint(draft.endpoint),
+          apiKey: draft.apiKey,
+          params: testParams(draft.params),
+        },
         messages: [{ role: "user", content: "回复两个字：可用" }],
-        stream: false,
       });
       setTestResult({ ok: true, text: result.content.slice(0, 80) || "连接成功（空回复）" });
     } catch (err) {
@@ -112,6 +139,7 @@ export function ModelSettings() {
         {settings.models.map((profile) => {
           const isActive = profile.id === settings.activeModelId;
           const missingKey = !profile.apiKey.trim();
+          const model = paramModel(profile.params);
 
           if (removingId === profile.id) {
             return (
@@ -162,7 +190,7 @@ export function ModelSettings() {
                       : "bg-surface text-fg-muted",
                   )}
                 >
-                  {(profile.name.trim() || profile.model || "?").slice(0, 1)}
+                  {(profile.name.trim() || model || "?").slice(0, 1)}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
@@ -174,7 +202,7 @@ export function ModelSettings() {
                     )}
                   </span>
                   <span className="mt-0.5 block truncate text-[11px] text-fg-subtle">
-                    {profile.model} · {profileHost(profile)}
+                    {model || "缺 model"} · {endpointHost(profile)}
                   </span>
                 </span>
               </button>
@@ -210,7 +238,7 @@ export function ModelSettings() {
       </div>
 
       <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
-        点一条档案可编辑 Base URL、Key、模型名与参数；「当前」决定实际请求使用的模型，角色卡不再单独配置模型。
+        一条档案 = 完整 endpoint + Key + 请求体参数；模型名写在参数的 model 里。「当前」决定实际请求使用的档案，角色卡不再单独配置模型。
       </div>
 
       <Modal
@@ -231,7 +259,7 @@ export function ModelSettings() {
                 variant="ghost"
                 size="sm"
                 onClick={testConnection}
-                disabled={testing || !paramsCheck.ok}
+                disabled={testing || !!paramsError || !draft.endpoint.trim()}
                 leading={<Plug size={13} />}
               >
                 {testing ? "测试中…" : "测试连接"}
@@ -243,7 +271,7 @@ export function ModelSettings() {
                 <Button
                   variant={dirty ? "primary" : "ghost"}
                   size="sm"
-                  disabled={!dirty || !paramsCheck.ok}
+                  disabled={!dirty || !!paramsError}
                   onClick={handleSave}
                 >
                   保存
@@ -264,11 +292,23 @@ export function ModelSettings() {
               />
             </Field>
 
-            <Field label="Base URL" hint="例如 https://api.openai.com/v1 或你的中转地址">
+            <Field
+              label="Endpoint"
+              hint={
+                baseUrlWarning ? (
+                  <span className="text-warning">
+                    看起来只填了 Base URL，请求会打到 {normalizeEndpoint(draft.endpoint)}；完整地址通常以
+                    /chat/completions 结尾
+                  </span>
+                ) : (
+                  "完整地址，直接按此发起请求；应用不再补 /chat/completions"
+                )
+              }
+            >
               <Input
-                value={draft.baseUrl}
-                onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
-                placeholder="https://api.openai.com/v1"
+                value={draft.endpoint}
+                onChange={(e) => setDraft({ ...draft, endpoint: e.target.value })}
+                placeholder={DEFAULT_ENDPOINT}
                 spellCheck={false}
               />
             </Field>
@@ -293,23 +333,10 @@ export function ModelSettings() {
               </div>
             </Field>
 
-            <Field label="模型名称" hint="请求体里的 model 字段">
-              <Input
-                value={draft.model}
-                onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-                placeholder="gpt-4o-mini"
-                spellCheck={false}
-              />
-            </Field>
-
             <Field
-              label="额外参数（JSON 透传）"
-              error={paramsCheck.ok ? undefined : `JSON 无效：${paramsCheck.error}`}
-              hint={
-                paramsCheck.ok
-                  ? "会展开合并进请求体；model / messages / stream 由应用控制"
-                  : undefined
-              }
+              label="额外参数（请求体 JSON）"
+              error={paramsError}
+              hint="整段 JSON 就是请求体，应用只注入 messages；新建档案预置 model / stream / temperature / top_p"
               action={
                 <button
                   type="button"
@@ -324,7 +351,7 @@ export function ModelSettings() {
                 value={draft.params}
                 onChange={(e) => setDraft({ ...draft, params: e.target.value })}
                 spellCheck={false}
-                className="min-h-[140px] font-mono text-[12px] leading-relaxed"
+                className="min-h-[180px] font-mono text-[12px] leading-relaxed"
               />
             </Field>
 

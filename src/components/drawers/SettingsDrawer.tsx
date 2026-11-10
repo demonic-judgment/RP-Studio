@@ -161,9 +161,6 @@ export function SettingsDrawer() {
             <ModelSettings />
 
             <div className="space-y-3 rounded-2xl bg-surface-2 p-inset-sm">
-              <Row label="流式输出" hint="逐字返回，实时渲染">
-                <Switch label="流式输出" checked={settings.stream} onChange={(stream) => void setSettings({ stream })} />
-              </Row>
               <Row label="Enter 发送" hint="关闭后用 ⌘/Ctrl+Enter">
                 <Switch
                   label="Enter 发送"

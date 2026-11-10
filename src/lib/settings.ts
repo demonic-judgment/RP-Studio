@@ -1,31 +1,96 @@
 import type { AppSettings, ModelConfig, ModelProfile } from "./types";
-import { uid } from "./utils";
+import { safeJsonParse, uid } from "./utils";
 
-export const DEFAULT_PARAMS = `{
-  "temperature": 0.85,
-  "top_p": 0.95,
-  "max_tokens": 1024,
-  "frequency_penalty": 0.2,
-  "presence_penalty": 0.2
-}`;
+/**
+ * 新建档案时预置的四个参数：model 必填、stream 固定走流式、
+ * temperature / top_p 按常见写作场景给默认值。其余参数由用户自行加进 JSON。
+ */
+const PARAM_DEFAULTS = {
+  model: "gpt-4o-mini",
+  stream: true,
+  temperature: 0.85,
+  top_p: 0.95,
+};
+
+export const DEFAULT_PARAMS = JSON.stringify(PARAM_DEFAULTS, null, 2);
+export const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+
+/** 只做规范化：补协议、去尾斜杠。路径不做任何拼接，endpoint 由用户完整填写 */
+export function normalizeEndpoint(url: string): string {
+  let u = url.trim().replace(/\/+$/, "");
+  if (!u) return "";
+  if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
+  return u;
+}
+
+/** 旧版 baseUrl → 完整 endpoint：缺 chat/completions 路径时补上，仅用于数据迁移 */
+export function legacyBaseUrlToEndpoint(baseUrl: string): string {
+  const u = normalizeEndpoint(baseUrl);
+  if (!u) return "";
+  if (/\/chat\/completions$/i.test(u)) return u;
+  return `${u}/chat/completions`;
+}
+
+/**
+ * 看起来只填了 Base URL（没有接口路径，或只到 /v1）。
+ * 仅用于界面提示，不阻止请求——非标准网关的路径由用户自己决定。
+ */
+export function looksLikeBaseUrl(endpoint: string): boolean {
+  const u = normalizeEndpoint(endpoint);
+  if (!u) return false;
+  try {
+    const path = new URL(u).pathname.replace(/\/+$/, "");
+    return path === "" || /^\/v\d+(\.\d+)?$/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
+/** 取参数里的 model，用于列表展示与消息 meta */
+export function paramModel(params: string): string {
+  const parsed = safeJsonParse<Record<string, unknown>>(params || "{}");
+  if (!parsed.ok || !parsed.value || typeof parsed.value !== "object") return "";
+  const model = (parsed.value as Record<string, unknown>).model;
+  return typeof model === "string" ? model.trim() : "";
+}
+
+/** 补齐参数：保留用户写的键，缺 model 用旧字段兜底，缺 stream 默认 true */
+function normalizeParams(raw: string | undefined, legacyModel?: string): string {
+  const parsed = raw?.trim() ? safeJsonParse<Record<string, unknown>>(raw) : null;
+  const value =
+    parsed && parsed.ok && parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? { ...(parsed.value as Record<string, unknown>) }
+      : { ...PARAM_DEFAULTS };
+  if (typeof value.model !== "string" || !value.model.trim()) {
+    value.model = legacyModel?.trim() || PARAM_DEFAULTS.model;
+  }
+  if (typeof value.stream !== "boolean") value.stream = true;
+  return JSON.stringify(value, null, 2);
+}
 
 /** 新建一条模型档案，缺省值按 OpenAI 兼容接口给 */
-export function createProfile(patch: Partial<ModelProfile> = {}): ModelProfile {
-  const model = typeof patch.model === "string" && patch.model.trim() ? patch.model.trim() : "gpt-4o-mini";
+export function createProfile(
+  patch: Partial<ModelProfile> & { baseUrl?: string; model?: string } = {},
+): ModelProfile {
+  const params = normalizeParams(patch.params, patch.model);
+  const rawEndpoint =
+    typeof patch.endpoint === "string" && patch.endpoint.trim()
+      ? patch.endpoint
+      : typeof patch.baseUrl === "string"
+        ? legacyBaseUrlToEndpoint(patch.baseUrl)
+        : DEFAULT_ENDPOINT;
   return {
     id: patch.id?.trim() || uid("model"),
-    name: patch.name?.trim() || model,
-    baseUrl: typeof patch.baseUrl === "string" ? patch.baseUrl : "https://api.openai.com/v1",
+    name: patch.name?.trim() || paramModel(params) || "未命名模型",
+    endpoint: normalizeEndpoint(rawEndpoint) || DEFAULT_ENDPOINT,
     apiKey: typeof patch.apiKey === "string" ? patch.apiKey : "",
-    model,
-    params: typeof patch.params === "string" && patch.params.trim() ? patch.params : DEFAULT_PARAMS,
+    params,
   };
 }
 
 export const DEFAULT_PROFILE: ModelProfile = createProfile({
   id: "model-default",
   name: "OpenAI",
-  model: "gpt-4o-mini",
 });
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -35,29 +100,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   models: [{ ...DEFAULT_PROFILE }],
   activeModelId: DEFAULT_PROFILE.id,
   scriptTimeoutMs: 5000,
-  stream: true,
   enterToSend: true,
   showTokenEstimate: true,
 };
 
-export function normalizeBaseUrl(url: string): string {
-  let u = url.trim().replace(/\/+$/, "");
-  if (!u) return "";
-  if (!/^https?:\/\//i.test(u)) u = `https://${u}`;
-  return u;
-}
-
-/** 拼接 chat completions 端点，兼容用户直接粘贴完整端点的情况 */
-export function completionsUrl(baseUrl: string): string {
-  const u = normalizeBaseUrl(baseUrl);
-  if (/\/chat\/completions$/i.test(u)) return u;
-  return `${u}/chat/completions`;
-}
-
-/** 档案的主机名，用于列表里的一行摘要 */
-export function profileHost(config: { baseUrl: string }): string {
-  const u = normalizeBaseUrl(config.baseUrl);
-  if (!u) return "未填 Base URL";
+/** endpoint 的主机名，用于列表里的一行摘要 */
+export function endpointHost(config: { endpoint: string }): string {
+  const u = normalizeEndpoint(config.endpoint);
+  if (!u) return "未填 endpoint";
   try {
     return new URL(u).host;
   } catch {
@@ -74,14 +124,23 @@ export function activeProfile(settings: AppSettings): ModelProfile {
 }
 
 /**
- * 兼容旧版单模型设置（`settings.model`）并补齐缺字段：
+ * 兼容旧版单模型设置（`settings.model`）与旧版 baseUrl 档案，并补齐缺字段：
  * 旧结构一律迁移成一条档案，且保证至少有一条、activeModelId 指向存在的档案。
+ * 旧版全局「流式输出」开关已移除，历史数据里的 `stream` 键在归一化时丢弃。
  */
 export function normalizeSettings(raw: unknown): AppSettings {
   const input = (raw && typeof raw === "object" ? raw : {}) as Partial<AppSettings> & {
     model?: Partial<ModelProfile>;
+    stream?: boolean;
   };
-  const { model: legacyModel, models: rawModels, activeModelId: rawActiveId, ...rest } = input;
+  const legacyModel = input.model;
+  const rawModels = input.models;
+  const rawActiveId = input.activeModelId;
+  const rest: Partial<AppSettings> & { model?: Partial<ModelProfile>; stream?: boolean } = { ...input };
+  delete rest.model;
+  delete rest.stream;
+  delete rest.models;
+  delete rest.activeModelId;
 
   const seen = new Set<string>();
   const models: ModelProfile[] = [];
@@ -126,9 +185,8 @@ export function normalizeSettings(raw: unknown): AppSettings {
 export function resolveModelConfig(settings: AppSettings): ModelConfig {
   const base = activeProfile(settings);
   return {
-    baseUrl: base.baseUrl,
+    endpoint: base.endpoint,
     apiKey: base.apiKey,
-    model: base.model,
     params: base.params,
   };
 }

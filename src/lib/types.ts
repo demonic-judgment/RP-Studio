@@ -50,12 +50,15 @@ export interface QuickPhrase {
   content: string;
 }
 
-/** 一次请求实际用到的模型参数（由档案 + 覆盖解析而来） */
+/** 一次请求实际用到的模型参数（由档案解析而来） */
 export interface ModelConfig {
-  baseUrl: string;
+  /** 完整 endpoint，原样请求，不做路径拼接，例如 https://api.openai.com/v1/chat/completions */
+  endpoint: string;
   apiKey: string;
-  model: string;
-  /** 额外参数，JSON 文本，原样透传给后端 */
+  /**
+   * 请求体参数，JSON 文本。model / stream / temperature / top_p 等都写在这里，
+   * 应用只额外注入 messages。
+   */
   params: string;
 }
 
@@ -185,7 +188,6 @@ export interface AppSettings {
   /** 当前激活档案的 id */
   activeModelId: string;
   scriptTimeoutMs: number;
-  stream: boolean;
   enterToSend: boolean;
   showTokenEstimate: boolean;
 }

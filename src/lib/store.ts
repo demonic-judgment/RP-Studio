@@ -14,7 +14,7 @@ import { assembleContext, interpolate } from "./context";
 import { chatCompletion } from "./llm";
 import { runScript } from "./script";
 import { runWorkflow, type WorkflowRunEvent } from "./workflow";
-import { DEFAULT_SETTINGS, normalizeSettings, resolveModelConfig } from "./settings";
+import { DEFAULT_SETTINGS, normalizeSettings, paramModel, resolveModelConfig } from "./settings";
 import { initDb } from "./db";
 import { applyTheme } from "./theme";
 import { nowIso, uid } from "./utils";
@@ -405,6 +405,7 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     const model = resolveModelConfig(state.settings);
+    const modelName = paramModel(model.params);
     abortController = new AbortController();
     const startedAt = Date.now();
     const mode: StreamState["mode"] = character.workflow?.enabled ? "workflow" : "chat";
@@ -449,7 +450,6 @@ export const useStore = create<Store>((set, get) => ({
           userName: state.settings.userName,
           model,
           signal: abortController.signal,
-          stream: state.settings.stream,
           scriptTimeoutMs: state.settings.scriptTimeoutMs,
           onEvent: (event: WorkflowRunEvent) => {
             if (event.kind === "delta") {
@@ -486,7 +486,7 @@ export const useStore = create<Store>((set, get) => ({
           result.text,
           aborted ? "stopped" : result.errors.length && !result.text ? "error" : "done",
           {
-            model: model.model,
+            model: modelName,
             durationMs: Date.now() - startedAt,
             viaWorkflow: true,
             logs: result.logs.map((l) => `[${l.nodeTitle}] ${l.message}`),
@@ -498,13 +498,12 @@ export const useStore = create<Store>((set, get) => ({
           config: model,
           messages: outbound,
           signal: abortController.signal,
-          stream: state.settings.stream,
           onDelta: (_delta, full) => {
             set((s) => ({ stream: { ...s.stream, buffer: full } }));
           },
         });
         await finish(response.content, response.aborted ? "stopped" : "done", {
-          model: model.model,
+          model: modelName,
           durationMs: Date.now() - startedAt,
         });
       }
@@ -512,10 +511,10 @@ export const useStore = create<Store>((set, get) => ({
       const message = err instanceof Error ? err.message : String(err);
       if (abortController?.signal.aborted) {
         const partial = get().stream.buffer;
-        await finish(partial, "stopped", { model: model.model, durationMs: Date.now() - startedAt });
+        await finish(partial, "stopped", { model: modelName, durationMs: Date.now() - startedAt });
       } else {
         await finish(`请求失败：${message}`, "error", {
-          model: model.model,
+          model: modelName,
           durationMs: Date.now() - startedAt,
           error: message,
         });
