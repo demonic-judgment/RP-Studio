@@ -5,7 +5,6 @@ import {
   ArrowUp,
   ChevronDown,
   Eye,
-  EyeOff,
   GripVertical,
   History,
   MessageSquare,
@@ -17,7 +16,8 @@ import {
 import type { Character, ContextBlock, Message, Role } from "../../lib/types";
 import { assembleContext, blockKindMeta, describeHistoryBlock, newBlockId } from "../../lib/context";
 import { cn } from "../../lib/utils";
-import { IconButton } from "../ui/Button";
+import { Button, IconButton } from "../ui/Button";
+import { Modal } from "../ui/Modal";
 import { Segmented } from "../ui/Tabs";
 import { Switch } from "../ui/Form";
 
@@ -37,7 +37,7 @@ export function ContextEditor({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const move = (from: number, to: number) => {
     if (from === to || to < 0 || to >= blocks.length) return;
@@ -82,13 +82,8 @@ export function ContextEditor({
           顺序即上下文顺序。拖动左侧手柄排序，系统会按序拼装为最终 messages。
         </p>
         <button
-          onClick={() => setShowPreview((v) => !v)}
-          className={cn(
-            "flex shrink-0 items-center gap-1 rounded-full px-inset-pill py-1.5 text-[11px] transition-colors",
-            showPreview
-              ? "bg-primary-container text-on-primary-container"
-              : "bg-surface-2 text-fg-subtle hover:text-fg-muted",
-          )}
+          onClick={() => setPreviewOpen(true)}
+          className="flex shrink-0 items-center gap-1 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11px] text-fg-subtle transition-colors hover:text-fg-muted"
         >
           <Eye size={12} />
           预览
@@ -348,57 +343,68 @@ export function ContextEditor({
         ))}
       </div>
 
-      {showPreview && (
-        <div className="rounded-2xl bg-surface-2 p-inset-sm">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-subtle">
-              装配预览 · {preview.messages.length} 条 · ≈ {preview.tokens} tokens
+      <Modal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        title="上下文装配预览"
+        subtitle={`${preview.messages.length} 条消息 · ≈ ${preview.tokens} tokens`}
+        className="max-w-[680px]"
+        footer={
+          <>
+            <p className="min-w-0 text-[11px] leading-relaxed text-fg-subtle">
+              按块的顺序拼装，未启用的块不参与
             </p>
-            <button
-              onClick={() => setShowPreview(false)}
-              className="text-fg-subtle hover:text-fg-muted"
-              aria-label="关闭预览"
+            <Button
+              variant="ghost"
+              size="sm"
+              data-autofocus
+              onClick={() => setPreviewOpen(false)}
             >
-              <EyeOff size={13} />
-            </button>
-          </div>
-          <div className="space-y-2">
-            {preview.messages.map((msg, i) => (
-              <div key={i} className="rounded-xl bg-surface px-inset-lg py-2.5">
-                <div className="mb-1 flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.5 font-mono text-[10px]",
-                      msg.role === "system"
-                        ? "bg-primary-container text-on-primary-container"
-                        : msg.role === "user"
-                          ? "bg-surface-3 text-fg-muted"
-                          : "bg-secondary-container text-on-primary-container",
-                    )}
-                  >
-                    {msg.role}
-                  </span>
-                  <span className="text-[10px] text-fg-subtle">{msg.content.length} 字</span>
-                </div>
-                <p className="line-clamp-4 whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-fg-muted">
-                  {msg.content}
-                </p>
+              关闭
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2 pb-1">
+          {preview.messages.map((msg, i) => (
+            <div key={i} className="rounded-xl bg-surface-2 px-inset-lg py-2.5">
+              <div className="mb-1 flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 font-mono text-[10px]",
+                    msg.role === "system"
+                      ? "bg-primary-container text-on-primary-container"
+                      : msg.role === "user"
+                        ? "bg-surface-3 text-fg-muted"
+                        : "bg-secondary-container text-on-primary-container",
+                  )}
+                >
+                  {msg.role}
+                </span>
+                <span className="text-[10px] text-fg-subtle">{msg.content.length} 字</span>
               </div>
-            ))}
-            {preview.messages.length === 0 && (
-              <p className="text-[11.5px] text-fg-subtle">所有块都被禁用，或内容为空。</p>
-            )}
-          </div>
-          <div className="mt-2 space-y-0.5 border-t border-line pt-2">
+              <p className="whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-fg-muted">
+                {msg.content}
+              </p>
+            </div>
+          ))}
+          {preview.messages.length === 0 && (
+            <p className="text-[11.5px] text-fg-subtle">所有块都被禁用，或内容为空。</p>
+          )}
+
+          <div className="space-y-0.5 border-t border-line pt-2">
             {preview.trace.map((item) => (
-              <div key={item.blockId} className="flex items-center justify-between text-[10.5px] text-fg-subtle">
+              <div
+                key={item.blockId}
+                className="flex items-center justify-between text-[10.5px] text-fg-subtle"
+              >
                 <span>{blockKindMeta(item.kind).label}</span>
                 <span>{item.note}</span>
               </div>
             ))}
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

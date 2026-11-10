@@ -36,8 +36,9 @@ export function MessageList({
   const streaming = stream.running && stream.sessionId === activeSessionId;
   const streamText = stream.buffer;
   // 用 mask 让消息在悬浮输入层上缘自然淡出（不再叠一层不透明色带），
-  // 因此底部只需预留 淡出高度 + 呼吸间距。
-  const fade = 56;
+  // 因此底部只需预留 淡出高度 + 呼吸间距。淡出带收窄到 32px，
+  // 只够把最后一行溶进输入层，不会在它上方吃掉一整段可读区域。
+  const fade = 32;
   const reserved = bottomInset + fade + 8;
   const maskImage = `linear-gradient(to bottom, #000 calc(100% - ${bottomInset + fade}px), transparent calc(100% - ${bottomInset}px))`;
 

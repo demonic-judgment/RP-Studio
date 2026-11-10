@@ -199,10 +199,24 @@ export interface Workflow {
 export type ThemeMode = "light" | "dark" | "system";
 export type DrawerId = "left" | "settings" | "character" | null;
 
+/**
+ * 主页最底层背景图。`url` 既可能是外链，也可能是本地上传后压成的 data URL
+ * （图片直接进 settings 的 jsonb，不另建表；上传时统一缩到长边 2560 再转 webp）。
+ */
+export interface BackgroundConfig {
+  url: string;
+  /** 图片自身不透明度，0.1–1 */
+  opacity: number;
+  /** 高斯模糊半径（px），0–24 */
+  blur: number;
+}
+
 export interface AppSettings {
   theme: ThemeMode;
   accent: string;
   userName: string;
+  /** 未设置时走默认的强调色光斑背景 */
+  background?: BackgroundConfig;
   /** 模型档案列表，至少一条 */
   models: ModelProfile[];
   /** 当前激活档案的 id */

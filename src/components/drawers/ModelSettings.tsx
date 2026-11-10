@@ -36,7 +36,6 @@ export function ModelSettings() {
   const settings = useStore((s) => s.settings);
   const saveModel = useStore((s) => s.saveModel);
   const removeModel = useStore((s) => s.removeModel);
-  const setActiveModel = useStore((s) => s.setActiveModel);
   const toast = useStore((s) => s.toast);
 
   /** 非空即弹窗打开；新建档案此时尚未落库 */
@@ -129,8 +128,7 @@ export function ModelSettings() {
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
             共 {settings.models.length} 条 · 当前使用「{active.name}」
           </p>
-        </div>
-        <Button variant="outline" size="sm" leading={<Plus size={13} />} onClick={handleAdd}>
+        </div>        <Button variant="outline" size="sm" leading={<Plus size={13} />} onClick={handleAdd}>
           新增
         </Button>
       </div>
@@ -208,16 +206,12 @@ export function ModelSettings() {
               </button>
 
               <div className="flex shrink-0 items-center gap-1 pr-0.5">
-                {isActive ? (
+                {isActive && (
                   <span className="px-inset-tight">
                     <Pill tone="default" className="bg-[var(--bg)]/55 text-fg-muted">
                       使用中
                     </Pill>
                   </span>
-                ) : (
-                  <Button variant="ghost" size="sm" onClick={() => void setActiveModel(profile.id)}>
-                    设为当前
-                  </Button>
                 )}
                 <IconButton
                   label={
@@ -238,7 +232,7 @@ export function ModelSettings() {
       </div>
 
       <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
-        一条档案 = 完整 endpoint + Key + 请求体参数；模型名写在参数的 model 里。「当前」决定实际请求使用的档案，角色卡不再单独配置模型。
+        一条档案 = 完整 endpoint + Key + 请求体参数；模型名写在参数的 model 里。用哪条档案在输入框左下角切换，角色卡不再单独配置模型。
       </div>
 
       <Modal

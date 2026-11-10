@@ -17,7 +17,7 @@ export function ChatHeader({
   onNewSession: () => void;
 }) {
   return (
-    <header className="relative z-10 flex h-[62px] shrink-0 items-center gap-2 border-b border-line/70 px-3 sm:px-4">
+    <header className="relative z-10 flex h-[62px] shrink-0 items-center gap-2 px-3 shadow-header sm:px-4">
       <div className="flex flex-1 items-center gap-1">
         <button
           onClick={onOpenLeft}

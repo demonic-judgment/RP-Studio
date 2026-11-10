@@ -60,6 +60,13 @@
   --shadow-md: 0 8px 24px -12px rgba(28, 25, 20, 0.18), 0 2px 6px rgba(28, 25, 20, 0.04);
   --shadow-lg: 0 24px 60px -20px rgba(28, 25, 20, 0.28), 0 4px 12px rgba(28, 25, 20, 0.06);
   --focus-shadow: 0 28px 70px -24px rgba(28, 25, 20, 0.38);
+  /* 输入卡专用：同样是浮起，但收得比抽屉 / 弹窗紧一档 ——
+     它常驻页面底部，投影拖太远会变成一圈挥之不去的脏边，
+     贴着卡片边缘薄薄一层，够把卡片和后面的内容分开就行 */
+  --float-soft-shadow: 0 6px 16px -10px rgba(28, 25, 20, 0.22), 0 1px 2px rgba(28, 25, 20, 0.05);
+  --focus-soft-shadow: 0 8px 20px -12px rgba(28, 25, 20, 0.28);
+  /* 顶栏分隔：不用实线，靠一道贴边的弱投影 */
+  --header-shadow: 0 8px 16px -14px rgba(28, 25, 20, 0.34);
   --column-shadow: 0 0 100px -40px rgba(28, 25, 20, 0.3);
   --bubble-shadow: 0 1px 2px rgba(28, 25, 20, 0.05), 0 2px 8px -3px rgba(28, 25, 20, 0.1);
   --select-caret: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8680' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>");
@@ -111,6 +118,10 @@
   --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.85);
   --focus-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.9),
     0 0 0 1px color-mix(in oklab, var(--fg) 9%, transparent);
+  --float-soft-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.62), 0 1px 3px rgba(0, 0, 0, 0.45);
+  --focus-soft-shadow: 0 8px 20px -12px rgba(0, 0, 0, 0.74),
+    0 0 0 1px color-mix(in oklab, var(--fg) 7%, transparent);
+  --header-shadow: 0 8px 16px -14px rgba(0, 0, 0, 0.72);
   --column-shadow: 0 0 100px -40px rgba(0, 0, 0, 0.9);
   --bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.5),
     0 2px 10px -4px color-mix(in oklab, var(--fg) 16%, transparent);
@@ -138,6 +149,7 @@
   --color-line-strong: var(--border-strong);
   /* shadcn / beUI 源码里写的 border-border、ring-ring 走这两个别名 */
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-ring: var(--ring);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
@@ -189,6 +201,9 @@
   --shadow-card: var(--shadow-md);
   --shadow-float: var(--shadow-lg);
   --shadow-focus: var(--focus-shadow);
+  --shadow-float-soft: var(--float-soft-shadow);
+  --shadow-focus-soft: var(--focus-soft-shadow);
+  --shadow-header: var(--header-shadow);
   --shadow-column: var(--column-shadow);
   --shadow-bubble: var(--bubble-shadow);
 

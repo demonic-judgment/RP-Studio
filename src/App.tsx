@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "./lib/store";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
+import { cn } from "./lib/utils";
 import { Backdrop } from "./components/home/Backdrop";
 import { ChatView } from "./components/chat/ChatView";
 import { LeftDrawer } from "./components/drawers/LeftDrawer";
@@ -15,6 +16,8 @@ export default function App() {
   const init = useStore((s) => s.init);
   const theme = useStore((s) => s.settings.theme);
   const accent = useStore((s) => s.settings.accent);
+  /** 设了背景图时，内容列变成高斯模糊遮罩，让底图化成一团柔光透上来 */
+  const hasBackground = useStore((s) => Boolean(s.settings.background?.url));
 
   useEffect(() => {
     void init();
@@ -76,7 +79,14 @@ export default function App() {
     <div className="relative h-full w-full overflow-hidden">
       <Backdrop />
 
-      <div className="relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden bg-surface/55 backdrop-blur-[2px] sm:border-x sm:border-line/80 sm:shadow-column">
+      <div
+        className={cn(
+          "relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden sm:shadow-column",
+          hasBackground
+            ? "bg-surface/45 backdrop-blur-xl backdrop-saturate-150"
+            : "bg-surface/55 backdrop-blur-[2px]",
+        )}
+      >
         <ChatView />
       </div>
 

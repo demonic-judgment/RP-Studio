@@ -118,12 +118,14 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 组件 | 文件 | 要点 |
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
-| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。左抽屉的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
+| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。左抽屉的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
 | 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑重发 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
 | 流式回复面 | `src/components/agents/streaming-response.tsx` | beui 源码内联，无 npm 包。`status` 三态（streaming / complete / error）驱动 `aria-busy`；流式期间不出现操作条，结束后带 `y: 4 → 0` 淡入；内置复制 / 重新生成 / 有帮助 / 无帮助，`extraActions` 插槽追加本项目的删除与「模型 · 时间」；`labels` 换成中文；`contentClassName` 只调字号，排版仍交给 `.md` |
+| 输入条 | `src/components/chat/Composer.tsx` + `src/components/agents/prompt-input.tsx` | beui prompt-input 承载 textarea 与工具带：正文独占一行，下方工具带左侧是当前模型档案的 Select（选中即 `setActiveModel`，替代设置抽屉里原来的「设为当前」）、右侧发送 / 停止（图标切换动效 + 微弱投影）；快捷语与 token 估算留在卡片顶部，回车行为受 `settings.enterToSend` 控制。卡片投影走 `shadow-float-soft`（比抽屉 / 弹窗的 `shadow-float` 更贴边、更浅），焦点态用 `shadow-focus-soft` |
 | 活动流 | `src/components/agents/agent-activity/` + `src/components/chat/MessageActivity.tsx` | beui 源码内联。运行期占用一行状态条（shimmer 标签 + `tabular-nums` 计时），结束后收成可展开的轨迹；本项目只喂 `step` 项（工作流节点日志），`search` / `tool` / `trace` 三种行样式与类型已装好但暂无数据源，留给后续工具调用 |
-| 编辑面板 | `src/components/character/ContextEditor.tsx`、`src/components/script/ScriptEditor.tsx`、`src/components/workflow/WorkflowEditor.tsx` | 原生 HTML5 拖拽排序 + 上下移按钮；脚本编辑器支持 Tab 插空格；工作流画布试运行不写库 |
-| 兜底 | `src/components/ErrorBoundary.tsx`、`src/components/home/Backdrop.tsx` | class 组件 `getDerivedStateFromError`；背景层固定 `-z-10` 且 `aria-hidden` |
+| 编辑面板 | `src/components/character/ContextEditor.tsx`、`src/components/script/ScriptEditor.tsx`、`src/components/workflow/WorkflowEditor.tsx` | 原生 HTML5 拖拽排序 + 上下移按钮；装配预览走 `ui/Modal` 弹窗（不占抽屉版面，长内容自己滚）；脚本编辑器支持 Tab 插空格；工作流画布试运行不写库 |
+| 兜底 | `src/components/ErrorBoundary.tsx` | class 组件 `getDerivedStateFromError` |
+| 主页背景 | `src/components/home/Backdrop.tsx`、`src/components/drawers/BackgroundSettings.tsx`、`src/lib/image.ts` | 背景层固定 `-z-10` 且 `aria-hidden`；层次是「底色 → 自定义图 → 强调色光斑 → 网格」，设了图就把上面几层压淡；内容列同步切成高斯模糊遮罩（`App.tsx`：`backdrop-blur-xl` + `bg-surface/45` + `backdrop-saturate-150`），列两侧不描线；`ChatHeader` 不画分割线，用 `shadow-header` 那道贴边弱投影分隔；上传的图片在浏览器里缩到长边 2560 再转 WebP（几百 KB 的 data URL 直接进 `settings.app.background`），动图 / SVG 原样保留；拖滑杆只在内存改，停手 320ms 才落库 |
 | 图标 | `lucide-react` `^1.70.0` | 全局图标来源 |
 
 ---
@@ -162,17 +164,20 @@ RP-Studio/
    │  ├─ ease.ts                # 动效曲线与 spring 常量（beui 组件共用）
    │  ├─ text-shimmer.ts        # shimmer 渐变的关键帧与类名（beui 组件共用）
    │  ├─ i18n.tsx               # beui 组件文案解析：labels > LocaleProvider > 中文默认
+   │  ├─ image.ts               # 背景图预处理：缩到长边 2560、转 WebP、超限再降一档
    │  ├─ favicon.ts             # 站点 favicon URL 推导
+   │  ├─ focusable.ts           # 可聚焦元素判定（select / popover 共用）
    │  ├─ hooks/use-favicon.ts   # favicon 解码失败即降级为占位图标
+   │  ├─ hooks/                 # 其余 beui 交互 hook：smooth-text / listbox / row-cursor / on-open / hover-capable
    │  └─ utils.ts               # cn / uid / 时间 / 剪贴板 / JSON / token 估算 / 下载
    ├─ components/
    │  ├─ ErrorBoundary.tsx
    │  ├─ ui/                    # Button / Form / Drawer / Tabs / Toasts
-   │  ├─ agents/                # beui 源码：streaming-response / agent-activity / loading-states / citations / agent-disclosure
-   │  ├─ motion/                # beui 源码：text-shimmer
-   │  ├─ home/Backdrop.tsx      # 光斑漂移 + 网格遮罩
+   │  ├─ agents/                # beui 源码：streaming-response / agent-activity / loading-states / citations / agent-disclosure / prompt-input
+   │  ├─ motion/                # beui 源码：text-shimmer / select / popover-morph / magnetic / button
+   │  ├─ home/Backdrop.tsx      # 底色 → 自定义背景图 → 光斑漂移 → 网格遮罩
    │  ├─ chat/                  # ChatView / Header / MessageList / MessageItem / Markdown / Composer
-   │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer
+   │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer / BackgroundSettings
    │  ├─ character/ContextEditor.tsx
    │  ├─ script/ScriptEditor.tsx
    │  └─ workflow/WorkflowEditor.tsx
@@ -213,6 +218,7 @@ schema_meta(id int pk, version int)
 - **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`），在事务内更新 `schema_meta`，升级不丢数据。
 - **模型档案**：一条档案 = `endpoint`（完整地址，含 `/chat/completions`）+ `apiKey` + `params`（请求体 JSON），模型名写在 `params.model` 里，新建档案预置 `model / stream / temperature / top_p` 四个键。`settings` 表的 `app` 行里存 `models: ModelProfile[]` + `activeModelId`。旧的单模型结构（`settings.app.model`）与旧的 `baseUrl` 字段由 `normalizeSettings()` 在 `init()` / 导入备份时迁移成一条档案（`baseUrl` 会补成完整 endpoint，旧参数会补上 `model` 与 `stream`）；已移除的全局「流式输出」开关在归一化时直接丢弃。空数组、重复 id、`activeModelId` 不指向任何档案都会在归一化时修正。
 - **ID**：浏览器 `crypto.randomUUID()` 生成，不依赖 Postgres 扩展；`uid(prefix)` 加前缀。
+- **主页背景**：`settings.app.background: { url, opacity, blur }`，没有单独的表或对象存储。上传的图片先在前端缩到长边 2560、转 WebP，通常压到几百 KB 再以 data URL 入库；`normalizeSettings()` 会丢弃非 `http(s)` / `blob` / `data:image` 的值并把 `opacity`、`blur` 夹回合法区间，所以坏数据最多让背景消失，不会把渲染层带崩。因为 data URL 体积不小，`setSettings(patch, { persist: false })` 允许只改内存——拖不透明度 / 模糊滑杆时走它，停手后才整行写 jsonb。
 - **写入策略**：流式过程只在内存累积，结束后一次性落库；停止 / 出错也保存已生成部分。
 - **重新生成 = 多版本**：对 assistant 消息重新生成时不做「删掉再插一条」，而是**沿用原消息的 id 与 createdAt**，生成完用同一个 id 写回，并把历史回答存进 `meta.variants`（`{ content, createdAt }[]`，含当前这一版），`meta.variantIndex` 指向当前版。`content` 列始终等于 `variants[variantIndex].content`，所以上下文装配、导出、复制都拿当前选中的那一版，不需要额外的读写路径。切换版本只改 `content` + `meta`，不产生新行；消息删除时版本跟着走。编辑用户消息（`editMessage`）视为换了前提，旧回答照旧丢弃。
 - **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。
@@ -234,7 +240,7 @@ type ContextBlock =
 - **负数下标**：`from = -5, to = -1` 取倒数第 5 条到倒数第 1 条；`0 → -1` 取全部。越界自动裁剪到 `[0, n-1]`，正数按 0 基绝对下标处理，`from > to` 自动交换。
 - **装配顺序**：逐块产出消息 → 连续 `system` 用 `\n\n` 合并为一条（兼容严格接口）→ 没有启用的 `user` 块时自动在末尾补当前输入。
 - **变量**：`interpolate()` 支持 `{{char}}` `{{user}}` `{{input}}` `{{time}}` `{{history}}`。注意 **system 块只注入 `char` / `user`**，所以在系统提示里写 `{{input}}` 会得到空串；`{{input}}` 与 `{{history}}` 实际用于自定义块与工作流模板。
-- **预览**：上下文页可展开「装配预览」，显示每条消息、每块贡献说明（trace）与粗估 token（CJK 每字 1 token、其余每 4 字符 1 token，每条消息 +4）。
+- **预览**：上下文页点「预览」弹出模态（`ui/Modal`，portal 到 body，可叠在抽屉之上），列出每条装配后的消息、每块贡献说明（trace）与粗估 token（CJK 每字 1 token、其余每 4 字符 1 token，每条消息 +4）。正文在弹窗里不截断——预览的意义就是看全。
 - **编辑**：原生 HTML5 拖拽排序 + 上移 / 下移按钮（键盘可达）；`onDragOver` 必须 `preventDefault()` 才会触发 drop。
 
 ### 4.3 工作流规范
@@ -307,9 +313,13 @@ return { text: "已注入提示", messages: ctx.messages };
 ```text
 请让背景成为一种几乎察觉不到的氛围。几团非常柔和的光斑缓慢地在页面两端漂移，彼此节奏不同、永远不同步；再铺一层极淡的网格，越往边缘越淡，最后完全消失。光斑和网格都要从主题色和文字色里调出来，深色模式下自动收敛，不能变成抢眼的色块。
 
-内容列是半透明的，带一点毛玻璃感，能隐约透出背后的光晕，但文字始终清晰。桌面宽度收到一个适合长时间阅读的尺度，窄屏时自然铺满。列内的消息区域自己滚动，背景完全不动。
+内容列是一层高斯模糊遮罩：背后的东西不论是光斑还是用户自己的图，进来都得先被揉成一团柔光，再压一层薄薄的表面色，文字始终清晰。桌面宽度收到一个适合长时间阅读的尺度，窄屏时自然铺满。列内的消息区域自己滚动，背景完全不动。
+
+列的左右两侧不描线，靠遮罩自身的边界和一圈极淡的外投影分开；顶栏也不画分割线，改用一道贴着下沿的弱投影。实线会把界面切成两块硬邦邦的区域，投影只让上下之间透出一点空气感，滚动的消息从下面经过时也不会撞上一条边。
 
 背景层不能产生滚动条，不能挡住任何点击，也不能被内容列的底色完全盖死——两者之间要有一点若隐若现的层次。
+
+允许用户把这层光斑换成自己的图：图片贴在最底下，光斑和网格退到它上面并压淡，只当一层色雾，不抢照片。图的不透明度和模糊由用户自己定，模糊既能遮掉低分辨率的噪点，也能让白底图不至于把文字压得看不见。一旦设了图，内容列也从轻透改为高斯模糊遮罩（`backdrop-blur-xl` + 降低的表面色 + 提饱和），让底图在列内化成柔光、在列外保持清晰；没设图时保持原来那层几乎看不见的 2px 模糊。上传前就在浏览器里缩好尺寸、转成 WebP，别把几 MB 的原图塞进本地库——备份、导入都会跟着它一起变重。
 ```
 
 ### 基础控件与动效
@@ -353,7 +363,11 @@ return { text: "已注入提示", messages: ctx.messages };
 
 输入框会随着内容变高：换行、快捷语行出现或消失，都要让消息列表同步让出空间，最后一条消息永远完整可见，不会被浮层压住。「回到最新消息」按钮也要跟着一起上移，而不是钉死在屏幕某个位置。用户停留在底部时，新内容自动把视图带下去；一旦主动往上翻，就不要再打扰他。
 
-输入体验要照顾中文：输入法组词过程中的回车不能误触发发送，换行交给组合键。输入框空着时，把说明发送方式的那句话直接放在光标所在处，开始打字就让它安静地让位给正文，不必再单独占一行。整个输入层收成两行：上面一行左边排快捷语，右边留给上下文估算这类轻状态；下面一行是文字本身，发送按钮紧贴它的右下角，生成时同一个位置换成明确的停止出口。快捷语点一下就补进输入框并保持焦点。
+投影要克制，而且要贴着卡片边缘走。它常驻在页面底部，投影拖得太远会变成一圈挥之不去的脏边，重点是让边缘分得开，而不是压出厚度；获得焦点时可以稍微加深一点，但别突然变黑一块。抽屉、弹窗这类真正压在内容上的浮层才需要更实、更远的影子。
+
+输入框上方的淡出带要窄：只够把最后一行溶进输入层，不要一路往上吃掉半屏可读区域。
+
+输入体验要照顾中文：输入法组词过程中的回车不能误触发发送，换行交给组合键。输入框空着时，把说明发送方式的那句话直接放在光标所在处，开始打字就让它安静地让位给正文，不必再单独占一行。整个输入层分三块：最上面一行左边排快捷语，右边留给上下文估算这类轻状态；中间是文字本身；最下面一条工具带，左边是当前模型档案，右边是发送按钮，生成时同一个位置换成明确的停止出口。换模型不该逼人打开设置抽屉——用哪条档案是随每次对话变的，就该待在离输入最近的地方。快捷语点一下就补进输入框并保持焦点。
 ```
 
 ### 工作流画布

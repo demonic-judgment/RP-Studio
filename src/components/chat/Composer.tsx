@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useRef } from "react";
-import { motion } from "motion/react";
-import { ArrowUp, Square, Sparkles, Wand2 } from "lucide-react";
+import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
+import { Sparkles } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { Character } from "../../lib/types";
-import { cn, estimateTokens } from "../../lib/utils";
+import { estimateTokens } from "../../lib/utils";
 import { assembleContext } from "../../lib/context";
+import { PromptInput, type PromptInputMessages, type PromptModel } from "../agents/prompt-input";
+
+/** 快捷语插入后要靠它把焦点还给输入框；textarea 由组件内部持有，只能用 id 拿 */
+const INPUT_ID = "composer-input";
+
+const PROMPT_LABELS: Partial<PromptInputMessages> = {
+  label: "消息输入",
+  addToPrompt: "加入提示词",
+  chooseModel: "选择模型",
+  send: "发送",
+  stop: "停止生成",
+};
 
 export function Composer({
   character,
@@ -26,15 +37,8 @@ export function Composer({
 }) {
   const settings = useStore((s) => s.settings);
   const messages = useStore((s) => s.messages);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const setActiveModel = useStore((s) => s.setActiveModel);
   const shellRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
-  }, [value]);
 
   // 输入框会随内容长高、快捷语行也可能出现／消失：把真实高度报给消息列表，
   // 让它的底部内边距始终等于输入层高度，最后几行消息永远不会被浮层压住。
@@ -47,6 +51,11 @@ export function Composer({
     observer.observe(el);
     return () => observer.disconnect();
   }, [onHeightChange]);
+
+  const models = useMemo<PromptModel[]>(
+    () => settings.models.map((profile) => ({ value: profile.id, label: profile.name })),
+    [settings.models],
+  );
 
   const tokens = useMemo(() => {
     if (!settings.showTokenEstimate || !value.trim()) return 0;
@@ -63,12 +72,41 @@ export function Composer({
     }
   }, [character, messages, settings.showTokenEstimate, settings.userName, value]);
 
-  const send = () => {
-    if (!value.trim() || streaming) return;
-    onSend();
+  const insertPhrase = (content: string) => {
+    onChange(value.trim() ? `${value.trim()}\n${content}` : content);
+    requestAnimationFrame(() => {
+      const el = document.getElementById(INPUT_ID) as HTMLTextAreaElement | null;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    });
   };
 
-  // 发送方式直接写在输入区里，打字后自然让位给正文；状态信息与动作各占一行的两端。
+  // 组件默认「Enter 提交 / Shift+Enter 换行」，这里接管关掉 enterToSend 的情形：
+  // Enter 退化成换行，⌘/Ctrl+Enter 照旧提交（组件本身也会处理带修饰键的回车）。
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      settings.enterToSend ||
+      event.key !== "Enter" ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.nativeEvent.isComposing
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const el = event.currentTarget;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? start;
+    onChange(`${value.slice(0, start)}\n${value.slice(end)}`);
+    requestAnimationFrame(() => {
+      el.selectionStart = start + 1;
+      el.selectionEnd = start + 1;
+    });
+  };
+
   const sendHint = settings.enterToSend
     ? "Enter 发送 · Shift+Enter 换行"
     : "⌘/Ctrl+Enter 发送";
@@ -81,9 +119,9 @@ export function Composer({
         ref={shellRef}
         className="pointer-events-auto mx-auto w-full max-w-[820px] px-3 pb-4 sm:px-5 sm:pb-5"
       >
-        <div className="rounded-[26px] bg-surface/90 px-inset-md py-inset-tight shadow-float dark:bg-surface-2/95 backdrop-blur-xl transition-shadow focus-within:shadow-focus">
+        <div className="rounded-[26px] bg-surface/90 p-2.5 shadow-float-soft backdrop-blur-xl transition-shadow focus-within:shadow-focus-soft dark:bg-surface-2/95">
           {(character.quickPhrases.length > 0 || tokens > 0) && (
-            <div className="flex items-center gap-2 px-1 pb-2 pt-1">
+            <div className="flex items-center gap-2 px-1 pb-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
                 <span className="flex shrink-0 items-center gap-1 pl-1 pr-0.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
                   <Sparkles size={11} />
@@ -93,10 +131,7 @@ export function Composer({
                   <button
                     key={phrase.id}
                     type="button"
-                    onClick={() => {
-                      onChange(value.trim() ? `${value.trim()}\n${phrase.content}` : phrase.content);
-                      textareaRef.current?.focus();
-                    }}
+                    onClick={() => insertPhrase(phrase.content)}
                     className="shrink-0 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11.5px] text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg"
                     title={phrase.content}
                   >
@@ -112,58 +147,24 @@ export function Composer({
             </div>
           )}
 
-          <div className="flex items-end gap-2">
-            <div className="flex h-9 shrink-0 items-center justify-center pl-1 text-fg-subtle">
-              <Wand2 size={16} />
-            </div>
-            <textarea
-              ref={textareaRef}
-              aria-label="消息输入"
-              value={value}
-              rows={1}
-              onChange={(e) => onChange(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && settings.enterToSend) {
-                  if (e.nativeEvent.isComposing) return;
-                  e.preventDefault();
-                  send();
-                }
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder={sendHint}
-              className="max-h-[220px] min-h-[36px] flex-1 resize-none bg-transparent py-2 text-[14.5px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle"
-            />
-            {streaming ? (
-              <motion.button
-                initial={{ scale: 0.9, opacity: 0.6 }}
-                animate={{ scale: 1, opacity: 1 }}
-                type="button"
-                onClick={onStop}
-                aria-label="停止生成"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-85"
-              >
-                <Square size={13} fill="currentColor" />
-              </motion.button>
-            ) : (
-              <button
-                type="button"
-                onClick={send}
-                disabled={!value.trim()}
-                aria-label="发送"
-                className={cn(
-                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-200",
-                  value.trim()
-                    ? "bg-primary text-on-primary shadow-soft hover:bg-primary-hover active:scale-95"
-                    : "bg-surface-3 text-fg-subtle",
-                )}
-              >
-                <ArrowUp size={17} strokeWidth={2.4} />
-              </button>
-            )}
-          </div>
+          {/* 卡片外观由外层提供，组件只负责 textarea + 底部工具条（模型切换 / 发送） */}
+          <PromptInput
+            id={INPUT_ID}
+            value={value}
+            onValueChange={onChange}
+            models={models}
+            model={settings.activeModelId}
+            onModelChange={(id) => void setActiveModel(id)}
+            onSubmit={() => onSend()}
+            loading={streaming}
+            onStop={onStop}
+            minRows={1}
+            maxRows={9}
+            placeholder={sendHint}
+            labels={PROMPT_LABELS}
+            onKeyDown={handleKeyDown}
+            className="rounded-[20px] border-0 bg-transparent p-0"
+          />
         </div>
       </div>
     </div>

@@ -18,6 +18,7 @@ import { Tabs, Segmented } from "../ui/Tabs";
 import { Button } from "../ui/Button";
 import { Field, Input, Switch, Slider } from "../ui/Form";
 import { ModelSettings } from "./ModelSettings";
+import { BackgroundSettings } from "./BackgroundSettings";
 
 type TabId = "theme" | "model" | "data";
 
@@ -124,6 +125,8 @@ export function SettingsDrawer() {
                 })}
               </div>
             </div>
+
+            <BackgroundSettings />
 
             <div className="rounded-2xl bg-surface-2 p-inset-sm">
               <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-subtle">

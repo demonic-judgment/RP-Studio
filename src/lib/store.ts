@@ -53,7 +53,11 @@ interface Store {
   busy: boolean;
 
   init: () => Promise<void>;
-  setSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  /**
+   * `persist: false` 只改内存，用于拖拽滑杆这类高频更新 ——
+   * 背景图是几百 KB 的 data URL，每动一格就整行写 jsonb 会把拖动卡成幻灯片。
+   */
+  setSettings: (patch: Partial<AppSettings>, options?: { persist?: boolean }) => Promise<void>;
   /** 按 id 覆盖保存（不存在则追加） */
   saveModel: (profile: ModelProfile) => Promise<void>;
   removeModel: (id: string) => Promise<void>;
@@ -171,10 +175,11 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
-  setSettings: async (patch) => {
+  setSettings: async (patch, options) => {
     const settings = { ...get().settings, ...patch };
     set({ settings });
     applyTheme(settings.theme, settings.accent);
+    if (options?.persist === false) return;
     await repo.saveSetting("app", settings);
   },
 

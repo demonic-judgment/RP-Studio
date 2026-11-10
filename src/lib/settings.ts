@@ -1,4 +1,4 @@
-import type { AppSettings, ModelConfig, ModelProfile } from "./types";
+import type { AppSettings, BackgroundConfig, ModelConfig, ModelProfile } from "./types";
 import { safeJsonParse, uid } from "./utils";
 
 /**
@@ -170,11 +170,36 @@ export function normalizeSettings(raw: unknown): AppSettings {
       ? rawActiveId
       : models[0].id;
 
+  // 背景图不算「普通设置」：非法值一律当没设置，别把坏 url 带进渲染层
+  const background = normalizeBackground((rest as { background?: unknown }).background);
+  delete rest.background;
+
   return {
     ...DEFAULT_SETTINGS,
     ...rest,
     models,
     activeModelId,
+    background,
+  };
+}
+
+/**
+ * 背景图只接受 http(s)、blob 或图片 data URL：`url(...)` 是直接拼进 CSS 的，
+ * 顺手把引号/反斜杠去掉，免得半截坏值把整条背景规则弄挂。
+ */
+export function normalizeBackground(raw: unknown): BackgroundConfig | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const input = raw as Partial<BackgroundConfig>;
+  const url = typeof input.url === "string" ? input.url.replace(/["'\\\r\n]/g, "").trim() : "";
+  if (!/^(https?:\/\/|blob:|data:image\/)/i.test(url)) return undefined;
+  const clamp = (value: unknown, min: number, max: number, fallback: number) =>
+    typeof value === "number" && Number.isFinite(value)
+      ? Math.min(max, Math.max(min, value))
+      : fallback;
+  return {
+    url,
+    opacity: clamp(input.opacity, 0.1, 1, 1),
+    blur: clamp(input.blur, 0, 24, 0),
   };
 }
 
