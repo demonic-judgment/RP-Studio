@@ -51,6 +51,11 @@
   --destructive-foreground: #ffffff;
   --input: var(--border);
 
+  /* beUI 源码（如 shimmer 渐变）直接写 var(--foreground) 这类裸变量，
+     而 @theme inline 只产出工具类、不落 :root，这里补上别名。 */
+  --foreground: var(--fg);
+  --background: var(--bg);
+
   --shadow-sm: 0 1px 2px rgba(28, 25, 20, 0.05), 0 1px 1px rgba(28, 25, 20, 0.03);
   --shadow-md: 0 8px 24px -12px rgba(28, 25, 20, 0.18), 0 2px 6px rgba(28, 25, 20, 0.04);
   --shadow-lg: 0 24px 60px -20px rgba(28, 25, 20, 0.28), 0 4px 12px rgba(28, 25, 20, 0.06);
@@ -131,6 +136,9 @@
   --color-surface-3: var(--surface-3);
   --color-line: var(--border);
   --color-line-strong: var(--border-strong);
+  /* shadcn / beUI 源码里写的 border-border、ring-ring 走这两个别名 */
+  --color-border: var(--border);
+  --color-ring: var(--ring);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
   --color-fg-subtle: var(--fg-subtle);
@@ -274,6 +282,15 @@
     display: none;
   }
 
+  /* beUI 源码里用的类名，等价于上面的 no-scrollbar */
+  .scrollbar-hide {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
   .drag-none {
     -webkit-user-drag: none;
     user-select: none;
@@ -372,6 +389,14 @@ textarea[class*="resize-y"]::-webkit-resizer {
 }
 .md > * + * {
   margin-top: 0.8em;
+}
+/* 流式渲染按空行把正文切成块，块间距由上面那条统一给；
+   块内首/尾元素自带的 margin 归零，免得和块间距叠成两倍。 */
+.md > .md-block > :first-child {
+  margin-top: 0;
+}
+.md > .md-block > :last-child {
+  margin-bottom: 0;
 }
 .md h1,
 .md h2,

@@ -19,6 +19,8 @@ export function LeftDrawer() {
   const renameSession = useStore((s) => s.renameSession);
   const pinSession = useStore((s) => s.pinSession);
   const createCharacter = useStore((s) => s.createCharacter);
+  const removeCharacter = useStore((s) => s.removeCharacter);
+  const streaming = useStore((s) => s.stream.running);
 
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -133,6 +135,24 @@ export function LeftDrawer() {
                   }}
                 >
                   <Pencil size={13} />
+                </IconButton>
+                <IconButton
+                  label="删除角色"
+                  className="h-7 w-7 opacity-100 transition-opacity hover:text-danger sm:opacity-0 sm:group-hover:opacity-100"
+                  disabled={streaming}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (
+                      !window.confirm(
+                        `删除角色「${character.name}」及其全部会话与消息？此操作不可撤销。`,
+                      )
+                    ) {
+                      return;
+                    }
+                    void removeCharacter(character.id);
+                  }}
+                >
+                  <Trash2 size={13} />
                 </IconButton>
               </div>
             );

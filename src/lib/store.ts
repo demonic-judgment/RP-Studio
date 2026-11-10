@@ -5,6 +5,7 @@ import type {
   CharacterDraft,
   DrawerId,
   Message,
+  MessageVariant,
   ModelConfig,
   ModelProfile,
   Session,
@@ -73,6 +74,8 @@ interface Store {
 
   send: (text: string) => Promise<void>;
   regenerate: (messageId: string) => Promise<void>;
+  /** 在同一条消息的历史版本之间切换（0 为最早一版） */
+  switchVariant: (messageId: string, index: number) => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   removeMessage: (messageId: string) => Promise<void>;
   stop: () => void;
@@ -290,15 +293,40 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   removeCharacter: async (id) => {
+    const wasActive = get().activeCharacterId === id;
     await repo.deleteCharacter(id);
     let characters = await repo.listCharacters();
     if (characters.length === 0) {
       await repo.createCharacter({ name: "未命名角色", avatar: "🎭" });
       characters = await repo.listCharacters();
     }
-    set({ characters, activeCharacterId: null, activeSessionId: null, messages: [], sessions: [] });
-    await get().selectCharacter(characters[0].id);
+    // 删的不是当前角色时别动当前会话
+    if (!wasActive) {
+      set({ characters });
+    } else {
+      set({ characters, activeCharacterId: null, activeSessionId: null, messages: [], sessions: [] });
+      await get().selectCharacter(characters[0].id);
+    }
     get().toast({ title: "角色已删除", variant: "default" });
+  },
+
+  switchVariant: async (messageId, index) => {
+    const message = get().messages.find((m) => m.id === messageId);
+    const variants = message?.meta.variants;
+    if (!message || !variants || variants.length < 2) return;
+    const next = Math.min(Math.max(0, index), variants.length - 1);
+    if (next === (message.meta.variantIndex ?? variants.length - 1)) return;
+
+    const content = variants[next].content;
+    const status = variants[next].status ?? "done";
+    // 切到正常版本时顺手清掉上一条的错误文案，失败版自己带着「请求失败：…」正文
+    const meta = { ...message.meta, variantIndex: next, error: undefined };
+    await repo.updateMessage(messageId, { content, status, meta });
+    set({
+      messages: get().messages.map((m) =>
+        m.id === messageId ? { ...m, content, status, meta } : m,
+      ),
+    });
   },
 
   send: async (text) => {
@@ -350,6 +378,11 @@ export const useStore = create<Store>((set, get) => ({
     const target = messages[index];
     let history: Message[];
     let input: string;
+    /**
+     * 重新生成 assistant 回答时沿用原消息的 id / 时间，并把已有版本带走。
+     * 这样新回答是「另一版」而不是「另一条消息」，气泡底下才能来回切。
+     */
+    let carry: { id: string; createdAt: string; variants: MessageVariant[] } | null = null;
 
     if (target.role === "user") {
       history = messages.slice(0, index);
@@ -364,7 +397,15 @@ export const useStore = create<Store>((set, get) => ({
       const prevIndex = messages.findIndex((m) => m.id === prevUser.id);
       history = messages.slice(0, prevIndex);
       input = prevUser.content;
-      await repo.truncateAfter(activeSessionId, prevUser.id);
+      carry = {
+        id: target.id,
+        createdAt: target.createdAt,
+        variants: target.meta.variants?.length
+          ? target.meta.variants
+          : [{ content: target.content, createdAt: target.createdAt, status: target.status }],
+      };
+      // 连自身一起删掉，生成完再用同一个 id 写回
+      await repo.deleteMessagesFrom(activeSessionId, target.id);
     }
 
     set({ messages: await repo.listMessages(activeSessionId) });
@@ -426,12 +467,18 @@ export const useStore = create<Store>((set, get) => ({
         set({ stream: emptyStream });
         return;
       }
+      // 重新生成：新回答作为最新一版追加，历史版本原样保留
+      const variants = carry
+        ? [...carry.variants, { content, createdAt: nowIso(), status }]
+        : undefined;
       await repo.appendMessage({
         sessionId: activeSessionId,
         role: "assistant",
         content,
         status,
-        meta,
+        id: carry?.id,
+        createdAt: carry?.createdAt,
+        meta: variants ? { ...meta, variants, variantIndex: variants.length - 1 } : meta,
       });
       set({
         messages: await repo.listMessages(activeSessionId),

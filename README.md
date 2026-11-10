@@ -118,8 +118,10 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 组件 | 文件 | 要点 |
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
-| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24 |
-| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑重发 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；IME 保护 |
+| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。左抽屉的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
+| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑重发 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
+| 流式回复面 | `src/components/agents/streaming-response.tsx` | beui 源码内联，无 npm 包。`status` 三态（streaming / complete / error）驱动 `aria-busy`；流式期间不出现操作条，结束后带 `y: 4 → 0` 淡入；内置复制 / 重新生成 / 有帮助 / 无帮助，`extraActions` 插槽追加本项目的删除与「模型 · 时间」；`labels` 换成中文；`contentClassName` 只调字号，排版仍交给 `.md` |
+| 活动流 | `src/components/agents/agent-activity/` + `src/components/chat/MessageActivity.tsx` | beui 源码内联。运行期占用一行状态条（shimmer 标签 + `tabular-nums` 计时），结束后收成可展开的轨迹；本项目只喂 `step` 项（工作流节点日志），`search` / `tool` / `trace` 三种行样式与类型已装好但暂无数据源，留给后续工具调用 |
 | 编辑面板 | `src/components/character/ContextEditor.tsx`、`src/components/script/ScriptEditor.tsx`、`src/components/workflow/WorkflowEditor.tsx` | 原生 HTML5 拖拽排序 + 上下移按钮；脚本编辑器支持 Tab 插空格；工作流画布试运行不写库 |
 | 兜底 | `src/components/ErrorBoundary.tsx`、`src/components/home/Backdrop.tsx` | class 组件 `getDerivedStateFromError`；背景层固定 `-z-10` 且 `aria-hidden` |
 | 图标 | `lucide-react` `^1.70.0` | 全局图标来源 |
@@ -157,10 +159,17 @@ RP-Studio/
    │  ├─ script-worker.ts       # Worker 内：AsyncFunction 执行用户脚本
    │  ├─ workflow.ts            # 节点构造、默认图、校验、DFS 执行器
    │  ├─ theme.ts               # 强调色预设、亮暗应用、跟随系统
+   │  ├─ ease.ts                # 动效曲线与 spring 常量（beui 组件共用）
+   │  ├─ text-shimmer.ts        # shimmer 渐变的关键帧与类名（beui 组件共用）
+   │  ├─ i18n.tsx               # beui 组件文案解析：labels > LocaleProvider > 中文默认
+   │  ├─ favicon.ts             # 站点 favicon URL 推导
+   │  ├─ hooks/use-favicon.ts   # favicon 解码失败即降级为占位图标
    │  └─ utils.ts               # cn / uid / 时间 / 剪贴板 / JSON / token 估算 / 下载
    ├─ components/
    │  ├─ ErrorBoundary.tsx
    │  ├─ ui/                    # Button / Form / Drawer / Tabs / Toasts
+   │  ├─ agents/                # beui 源码：streaming-response / agent-activity / loading-states / citations / agent-disclosure
+   │  ├─ motion/                # beui 源码：text-shimmer
    │  ├─ home/Backdrop.tsx      # 光斑漂移 + 网格遮罩
    │  ├─ chat/                  # ChatView / Header / MessageList / MessageItem / Markdown / Composer
    │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer
@@ -205,6 +214,7 @@ schema_meta(id int pk, version int)
 - **模型档案**：一条档案 = `endpoint`（完整地址，含 `/chat/completions`）+ `apiKey` + `params`（请求体 JSON），模型名写在 `params.model` 里，新建档案预置 `model / stream / temperature / top_p` 四个键。`settings` 表的 `app` 行里存 `models: ModelProfile[]` + `activeModelId`。旧的单模型结构（`settings.app.model`）与旧的 `baseUrl` 字段由 `normalizeSettings()` 在 `init()` / 导入备份时迁移成一条档案（`baseUrl` 会补成完整 endpoint，旧参数会补上 `model` 与 `stream`）；已移除的全局「流式输出」开关在归一化时直接丢弃。空数组、重复 id、`activeModelId` 不指向任何档案都会在归一化时修正。
 - **ID**：浏览器 `crypto.randomUUID()` 生成，不依赖 Postgres 扩展；`uid(prefix)` 加前缀。
 - **写入策略**：流式过程只在内存累积，结束后一次性落库；停止 / 出错也保存已生成部分。
+- **重新生成 = 多版本**：对 assistant 消息重新生成时不做「删掉再插一条」，而是**沿用原消息的 id 与 createdAt**，生成完用同一个 id 写回，并把历史回答存进 `meta.variants`（`{ content, createdAt }[]`，含当前这一版），`meta.variantIndex` 指向当前版。`content` 列始终等于 `variants[variantIndex].content`，所以上下文装配、导出、复制都拿当前选中的那一版，不需要额外的读写路径。切换版本只改 `content` + `meta`，不产生新行；消息删除时版本跟着走。编辑用户消息（`editMessage`）视为换了前提，旧回答照旧丢弃。
 - **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。
 
 ![角色卡初始消息](docs/greeting.png)
@@ -323,7 +333,11 @@ return { text: "已注入提示", messages: ctx.messages };
 ```text
 请把两种消息做成明显不对称的观感：角色的回复不加气泡、不加底色，像正文一样自然铺在内容列里，Markdown 排版要舒展，代码块、引用和列表各有分寸；用户的发言则收进一枚右对齐的浅色气泡，圆角柔和，靠近发送方向的那一个角收得更紧，颜色从主题色里轻轻带出来；气泡四周带一层几乎察觉不到的浮起感，让它轻轻离开背景，又不要描边。
 
-消息悬停时才浮出复制、编辑、重新生成、删除这些操作；键盘聚焦时也必须能出现，不能只伺候鼠标。流式输出时末尾跟一枚细微的光标，等待回复时用几个依次起伏的小圆点。复制成功给一个短暂的图标反馈就够了。开场白、工作流回复、已编辑这类状态用很小的文字带过，不要做成显眼的徽章。
+消息悬停时才浮出复制、编辑、重新生成、删除这些操作；键盘聚焦时也必须能出现，不能只伺候鼠标。角色的回复是一块独立的「回复面」：生成中只有正文，不跟闪烁的打字光标，Markdown 边到边排，段落和列表不能因为后来居上的文字而跳动；等待第一个字时用几个依次起伏的小圆点。写完之后操作条才从正文下方轻轻浮出（复制、重新生成、有帮助 / 没帮助，加上本项目的删除与「模型 · 时间」），生成中这些操作一概不出现。复制成功给一个短暂的图标反馈就够了。开场白、工作流回复、已编辑这类状态用很小的文字带过，不要做成显眼的徽章。
+
+重新生成留下的历史版本在正文下方用一对小箭头夹一个分数表示（`‹ 2 / 3 ›`），字比操作条还小一档、颜色落到最弱的一档，不跟正文抢注意力；只有一版时整行不出现，别让人去数一个恒为 1/1 的计数器。切换要即时、不闪不抖，正文原地换成另一版，不重放打字机。
+
+回复面的上方是一条可以省略的活动流：生成时是一行低调的状态条——柔光扫过的标签加一枚不跳动的计时，工作流节点日志作为条目在下面逐条滑入，超出高度就贴着底部往上滚；写完后整条收起成「完成 N 个步骤」，点开才看执行轨迹。后端目前只给正文、不给推理文本，所以状态条从头到尾写「正在回复」并计时，不要凭空造一段「思考了多久」；等模型开始返回推理内容，才在正文之前多一段「正在思考」和推理文本。没有轨迹可看的普通对话，回复写完就收起整条，不留一行计时。
 
 用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。
 ```

@@ -104,6 +104,14 @@ export interface Session {
 
 export type MessageStatus = "streaming" | "done" | "error" | "stopped";
 
+/** 重新生成时留下的一版回答；按生成先后排列 */
+export interface MessageVariant {
+  content: string;
+  createdAt: string;
+  /** 这一版生成时的状态，切回来时一并还原（失败的那一版切走再切回不能丢） */
+  status?: MessageStatus;
+}
+
 export interface MessageMeta {
   model?: string;
   error?: string;
@@ -113,6 +121,18 @@ export interface MessageMeta {
   viaWorkflow?: boolean;
   /** 由角色卡「初始消息」自动写入的开场白 */
   greeting?: boolean;
+  /**
+   * 回答的历史版本（含当前这一版）。重新生成时沿用原消息的 id，
+   * 把新回答追加进来，气泡底下的「‹ 2 / 3 ›」才能来回切。
+   */
+  variants?: MessageVariant[];
+  /** 当前版本在 variants 里的下标；content 始终等于它 */
+  variantIndex?: number;
+  /**
+   * 模型返回的推理文本（reasoning_content）。当前后端只透出正文，
+   * 这条字段留给接上推理流之后使用：有值时活动流会先走「正在思考」。
+   */
+  reasoning?: string;
 }
 
 export interface Message {

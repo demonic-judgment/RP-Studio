@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { Character, Message } from "../../lib/types";
-import { cn } from "../../lib/utils";
 import { MessageItem } from "./MessageItem";
 
 export function MessageList({
@@ -22,10 +21,17 @@ export function MessageList({
   const editMessage = useStore((s) => s.editMessage);
   const regenerate = useStore((s) => s.regenerate);
   const removeMessage = useStore((s) => s.removeMessage);
+  const switchVariant = useStore((s) => s.switchVariant);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const atBottomRef = useRef(true);
+
+  useEffect(() => {
+    atBottomRef.current = atBottom;
+  }, [atBottom]);
 
   const streaming = stream.running && stream.sessionId === activeSessionId;
   const streamText = stream.buffer;
@@ -48,6 +54,20 @@ export function MessageList({
     }
   }, [messages.length, streamText, atBottom, streaming, reserved]);
 
+  // 打字机是逐帧长高的，store 里的 buffer 却按 chunk 更新；
+  // 直接盯内容高度，停在底部时才跟，避免每帧滚动都要等一次 React 重渲染。
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (!atBottomRef.current) return;
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     scrollToBottom("auto");
     // 切换会话时直接落到底部
@@ -58,6 +78,13 @@ export function MessageList({
     const el = scrollRef.current;
     if (!el) return;
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 140);
+  };
+
+  // 往上滚的瞬间就交还控制权：否则逐帧贴底的那一次滚动会把用户拽回来
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY >= 0) return;
+    atBottomRef.current = false;
+    setAtBottom(false);
   };
 
   const virtualMessage: Message = {
@@ -77,10 +104,14 @@ export function MessageList({
         <div
           ref={scrollRef}
           onScroll={onScroll}
+          onWheel={onWheel}
           style={{ paddingBottom: reserved }}
-          className="h-full overflow-y-auto overscroll-contain px-4 pt-6 sm:px-6"
+          className="h-full overflow-y-auto overscroll-contain px-4 pt-6 [overflow-anchor:none] sm:px-6"
         >
-          <div className="mx-auto flex w-full max-w-[760px] flex-col gap-5">
+          <div
+            ref={contentRef}
+            className="mx-auto flex w-full max-w-[760px] flex-col gap-5"
+          >
             {messages.length === 0 && !streaming ? (
               <CharacterIntro character={character} onQuickPhrase={onQuickPhrase} />
             ) : (
@@ -93,24 +124,24 @@ export function MessageList({
                   onEdit={editMessage}
                   onRegenerate={regenerate}
                   onDelete={removeMessage}
+                  onSwitchVariant={switchVariant}
                   disabled={streaming}
                 />
               ))
             )}
 
             {streaming && (
-              <>
-                {stream.logs.length > 0 && <StreamLogs logs={stream.logs} />}
-                <MessageItem
-                  message={virtualMessage}
-                  name={character.name}
-                  avatar={character.avatar}
-                  streaming
-                  onEdit={() => {}}
-                  onRegenerate={() => {}}
-                  onDelete={() => {}}
-                />
-              </>
+              <MessageItem
+                message={virtualMessage}
+                name={character.name}
+                avatar={character.avatar}
+                streaming
+                live={{ startedAt: stream.startedAt, logs: stream.logs }}
+                onEdit={() => {}}
+                onRegenerate={() => {}}
+                onDelete={() => {}}
+                onSwitchVariant={() => {}}
+              />
             )}
 
             <div ref={bottomRef} className="h-2" />
@@ -205,33 +236,5 @@ function CharacterIntro({
 function Capability({ children }: { children: React.ReactNode }) {
   return (
     <span className="rounded-full bg-surface-2 px-inset-pill py-1.5">{children}</span>
-  );
-}
-
-function StreamLogs({ logs }: { logs: { nodeTitle: string; message: string; level: string }[] }) {
-  const [open, setOpen] = useState(true);
-  const recent = logs.slice(-4);
-  return (
-    <div className="ml-0 mr-2 max-w-[calc(100%-44px)]">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          "flex items-center gap-1.5 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11px] text-fg-subtle transition-colors hover:text-fg-muted",
-        )}
-      >
-        <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
-        工作流执行日志 · {logs.length}
-      </button>
-      {open && (
-        <div className="mt-1.5 space-y-1 rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[11px] leading-relaxed text-fg-muted">
-          {recent.map((log, i) => (
-            <div key={i} className="flex gap-2">
-              <span className="shrink-0 text-fg-subtle">[{log.nodeTitle}]</span>
-              <span className={cn("break-all", log.level === "error" && "text-danger")}>{log.message}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
