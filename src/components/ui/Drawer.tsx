@@ -20,12 +20,18 @@ export function Drawer({
   ariaLabel: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // onClose 通常是内联箭头函数，每次渲染都是新引用；用 ref 取最新值，
+  // 避免下面的副作用因为父组件重渲染而反复执行（会连带抢走输入框焦点）。
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
     const panel = panelRef.current;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
       if (e.key !== "Tab" || !panel) return;
       const nodes = panel.querySelectorAll<HTMLElement>(
         'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
@@ -44,18 +50,24 @@ export function Drawer({
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  // 只在打开时聚焦一次：等入场动画开始后再落焦点。
+  // 依赖里不能放 onClose / 任何会随输入变化的值，否则每次按键都会重新聚焦、把光标顶掉。
+  useEffect(() => {
+    if (!open) return;
     const timer = window.setTimeout(() => {
       const target = panelRef.current?.querySelector<HTMLElement>(
         "[data-autofocus], input, textarea, button",
       );
       target?.focus({ preventScroll: true });
     }, 120);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-      window.clearTimeout(timer);
-    };
-  }, [open, onClose]);
+    return () => window.clearTimeout(timer);
+  }, [open]);
 
   return (
     <AnimatePresence>

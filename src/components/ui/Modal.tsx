@@ -29,6 +29,11 @@ export function Modal({
   className?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
+  // 同 Drawer：onClose 多为内联函数，用 ref 保证副作用不因重渲染重跑。
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
@@ -36,7 +41,7 @@ export function Modal({
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopImmediatePropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab" || !panelRef.current) return;
@@ -57,18 +62,23 @@ export function Modal({
     document.addEventListener("keydown", onKey, true);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey, true);
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  // 只在打开时聚焦一次，避免每次输入导致的渲染把焦点抢回第一个字段。
+  useEffect(() => {
+    if (!open) return;
     const timer = window.setTimeout(() => {
       const target = panelRef.current?.querySelector<HTMLElement>(
         "[data-autofocus], input, textarea, select",
       );
       target?.focus({ preventScroll: true });
     }, 90);
-    return () => {
-      document.removeEventListener("keydown", onKey, true);
-      document.body.style.overflow = prev;
-      window.clearTimeout(timer);
-    };
-  }, [open, onClose]);
+    return () => window.clearTimeout(timer);
+  }, [open]);
 
   return createPortal(
     <AnimatePresence>
