@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
-  ChevronDown,
   Maximize2,
   Plus,
   Save,
@@ -39,7 +38,6 @@ export function CharacterDrawer() {
   const [draft, setDraft] = useState<Character | null>(character);
   const [tab, setTab] = useState<TabId>("basic");
   const [workflowOpen, setWorkflowOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -80,7 +78,6 @@ export function CharacterDrawer() {
         quickPhrases: draft.quickPhrases,
         workflow: draft.workflow,
         script: draft.script,
-        modelOverride: draft.modelOverride,
       });
     } finally {
       setSaving(false);
@@ -235,72 +232,6 @@ export function CharacterDrawer() {
                   placeholder="你是……"
                 />
               </Field>
-
-              <div className="rounded-2xl border border-line">
-                <button
-                  onClick={() => setModelOpen((v) => !v)}
-                  className="flex w-full items-center justify-between px-3 py-2.5 text-left"
-                >
-                  <span>
-                    <span className="block text-[12.5px] font-medium text-fg">角色级模型覆盖</span>
-                    <span className="block text-[11px] text-fg-subtle">
-                      {Object.values(draft.modelOverride ?? {}).filter(Boolean).length > 0
-                        ? "已设置，留空的字段仍继承全局"
-                        : "未设置，使用全局模型配置"}
-                    </span>
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className={cn("text-fg-subtle transition-transform", modelOpen && "rotate-180")}
-                  />
-                </button>
-                {modelOpen && (
-                  <div className="space-y-3 border-t border-line px-3 py-3">
-                    <Field label="Base URL">
-                      <Input
-                        value={draft.modelOverride?.baseUrl ?? ""}
-                        onChange={(e) =>
-                          patch({ modelOverride: { ...draft.modelOverride, baseUrl: e.target.value } })
-                        }
-                        placeholder={settings.model.baseUrl || "继承全局"}
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <Field label="模型名称">
-                      <Input
-                        value={draft.modelOverride?.model ?? ""}
-                        onChange={(e) =>
-                          patch({ modelOverride: { ...draft.modelOverride, model: e.target.value } })
-                        }
-                        placeholder={settings.model.model || "继承全局"}
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <Field label="API Key">
-                      <Input
-                        type="password"
-                        value={draft.modelOverride?.apiKey ?? ""}
-                        onChange={(e) =>
-                          patch({ modelOverride: { ...draft.modelOverride, apiKey: e.target.value } })
-                        }
-                        placeholder="继承全局"
-                        spellCheck={false}
-                      />
-                    </Field>
-                    <Field label="参数 JSON 覆盖" hint="与全局参数浅合并">
-                      <Textarea
-                        value={draft.modelOverride?.params ?? ""}
-                        onChange={(e) =>
-                          patch({ modelOverride: { ...draft.modelOverride, params: e.target.value } })
-                        }
-                        placeholder='{"temperature": 1.1}'
-                        className="min-h-[80px] font-mono text-[12px]"
-                        spellCheck={false}
-                      />
-                    </Field>
-                  </div>
-                )}
-              </div>
 
               <div className="border-t border-line pt-4">
                 {confirmDelete ? (

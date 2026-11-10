@@ -58,7 +58,6 @@ export const SEED_CHARACTERS: CharacterDraft[] = [
     ],
     workflow: defaultWorkflow(),
     script: SCRIPT_SAMPLE,
-    modelOverride: {},
   },
   {
     name: "诺瓦",
@@ -98,7 +97,6 @@ export const SEED_CHARACTERS: CharacterDraft[] = [
     ],
     workflow: defaultWorkflow(),
     script: "",
-    modelOverride: {},
   },
   {
     name: "林深",
@@ -130,6 +128,5 @@ export const SEED_CHARACTERS: CharacterDraft[] = [
     ],
     workflow: defaultWorkflow(),
     script: "",
-    modelOverride: {},
   },
 ];

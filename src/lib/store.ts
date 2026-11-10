@@ -6,6 +6,7 @@ import type {
   DrawerId,
   Message,
   ModelConfig,
+  ModelProfile,
   Session,
 } from "./types";
 import * as repo from "./repo";
@@ -13,7 +14,7 @@ import { assembleContext, interpolate } from "./context";
 import { chatCompletion } from "./llm";
 import { runScript } from "./script";
 import { runWorkflow, type WorkflowRunEvent } from "./workflow";
-import { DEFAULT_SETTINGS } from "./settings";
+import { DEFAULT_SETTINGS, normalizeSettings, resolveModelConfig } from "./settings";
 import { initDb } from "./db";
 import { applyTheme } from "./theme";
 import { nowIso, uid } from "./utils";
@@ -52,6 +53,10 @@ interface Store {
 
   init: () => Promise<void>;
   setSettings: (patch: Partial<AppSettings>) => Promise<void>;
+  /** 按 id 覆盖保存（不存在则追加） */
+  saveModel: (profile: ModelProfile) => Promise<void>;
+  removeModel: (id: string) => Promise<void>;
+  setActiveModel: (id: string) => Promise<void>;
   openDrawer: (id: DrawerId) => void;
   setWorkflowOpen: (open: boolean) => void;
 
@@ -95,16 +100,6 @@ const emptyStream: StreamState = {
 
 const LAST_CHAR_KEY = "rp.lastCharacter";
 
-function resolveModel(settings: AppSettings, character?: Character | null): ModelConfig {
-  const override = character?.modelOverride ?? {};
-  const merged: ModelConfig = { ...settings.model };
-  (Object.keys(override) as (keyof ModelConfig)[]).forEach((key) => {
-    const value = override[key];
-    if (typeof value === "string" && value.trim()) merged[key] = value;
-  });
-  return merged;
-}
-
 /**
  * 新建会话；角色卡配置了「初始消息」时，把开场白作为角色的第一条消息写入。
  * 这样开场白会进入历史，可被历史切片块取到，也能像普通消息一样复制 / 编辑 / 删除。
@@ -146,11 +141,7 @@ export const useStore = create<Store>((set, get) => ({
       // 尽量申请持久化存储，降低浏览器清理 IndexedDB 的概率
       void navigator.storage?.persist?.();
       const saved = (await repo.loadSettings()) as { app?: Partial<AppSettings> };
-      const settings: AppSettings = {
-        ...DEFAULT_SETTINGS,
-        ...(saved.app ?? {}),
-        model: { ...DEFAULT_SETTINGS.model, ...(saved.app?.model ?? {}) },
-      };
+      const settings: AppSettings = normalizeSettings(saved.app ?? {});
 
       let characters = await repo.listCharacters();
       if (characters.length === 0) {
@@ -182,6 +173,36 @@ export const useStore = create<Store>((set, get) => ({
     set({ settings });
     applyTheme(settings.theme, settings.accent);
     await repo.saveSetting("app", settings);
+  },
+
+  saveModel: async (profile) => {
+    const settings = get().settings;
+    const exists = settings.models.some((m) => m.id === profile.id);
+    const models = exists
+      ? settings.models.map((m) => (m.id === profile.id ? { ...profile } : m))
+      : [...settings.models, { ...profile }];
+    await get().setSettings({
+      models,
+      activeModelId: models.some((m) => m.id === settings.activeModelId)
+        ? settings.activeModelId
+        : profile.id,
+    });
+  },
+
+  removeModel: async (id) => {
+    const settings = get().settings;
+    if (settings.models.length <= 1) return;
+    const models = settings.models.filter((m) => m.id !== id);
+    await get().setSettings({
+      models,
+      activeModelId: settings.activeModelId === id ? models[0].id : settings.activeModelId,
+    });
+  },
+
+  setActiveModel: async (id) => {
+    const settings = get().settings;
+    if (!settings.models.some((m) => m.id === id)) return;
+    await get().setSettings({ activeModelId: id });
   },
 
   openDrawer: (id) => set({ drawer: id }),
@@ -383,7 +404,7 @@ export const useStore = create<Store>((set, get) => ({
       }
     }
 
-    const model = resolveModel(state.settings, character);
+    const model = resolveModelConfig(state.settings);
     abortController = new AbortController();
     const startedAt = Date.now();
     const mode: StreamState["mode"] = character.workflow?.enabled ? "workflow" : "chat";
@@ -536,11 +557,7 @@ export const useStore = create<Store>((set, get) => ({
     set({ characters, sessions: [], messages: [], activeCharacterId: null, activeSessionId: null });
     const saved = (await repo.loadSettings()) as { app?: Partial<AppSettings> };
     if (saved.app) {
-      const settings: AppSettings = {
-        ...DEFAULT_SETTINGS,
-        ...saved.app,
-        model: { ...DEFAULT_SETTINGS.model, ...(saved.app.model ?? {}) },
-      };
+      const settings: AppSettings = normalizeSettings(saved.app);
       set({ settings });
       applyTheme(settings.theme, settings.accent);
     }
@@ -576,8 +593,7 @@ export function activeCharacter(): Character | null {
 }
 
 export function currentModel(): ModelConfig {
-  const { settings, characters, activeCharacterId } = useStore.getState();
-  return resolveModel(settings, characters.find((c) => c.id === activeCharacterId));
+  return resolveModelConfig(useStore.getState().settings);
 }
 
 export const streamingMessageId = "streaming-placeholder";

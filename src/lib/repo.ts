@@ -4,7 +4,6 @@ import type {
   CharacterDraft,
   Message,
   MessageMeta,
-  ModelOverride,
   QuickPhrase,
   Session,
   Workflow,
@@ -27,7 +26,6 @@ type CharRow = {
   quick_phrases: unknown;
   workflow: unknown;
   script: string;
-  model_override: unknown;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -71,7 +69,6 @@ function mapCharacter(row: CharRow): Character {
     quickPhrases: asObject<QuickPhrase[]>(row.quick_phrases, []),
     workflow: asObject<Workflow>(row.workflow, { enabled: false, nodes: [], edges: [] }),
     script: row.script ?? "",
-    modelOverride: asObject<ModelOverride>(row.model_override, {}),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -129,12 +126,11 @@ export async function createCharacter(draft: Partial<CharacterDraft> = {}): Prom
     quickPhrases: draft.quickPhrases ?? [],
     workflow: draft.workflow ?? { enabled: false, nodes: [], edges: [] },
     script: draft.script ?? "",
-    modelOverride: draft.modelOverride ?? {},
   };
   const { rows } = await getDb().query<CharRow>(
     `insert into characters
-      (id, name, avatar, tagline, description, greeting, system_prompt, context_blocks, quick_phrases, workflow, script, model_override, created_at, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12::jsonb,$13,$13)
+      (id, name, avatar, tagline, description, greeting, system_prompt, context_blocks, quick_phrases, workflow, script, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$12)
      returning *`,
     [
       id,
@@ -148,7 +144,6 @@ export async function createCharacter(draft: Partial<CharacterDraft> = {}): Prom
       JSON.stringify(payload.quickPhrases),
       JSON.stringify(payload.workflow),
       payload.script,
-      JSON.stringify(payload.modelOverride),
       ts,
     ],
   );
@@ -176,7 +171,6 @@ export async function updateCharacter(
   if (patch.quickPhrases !== undefined) push("quick_phrases", JSON.stringify(patch.quickPhrases), "::jsonb");
   if (patch.workflow !== undefined) push("workflow", JSON.stringify(patch.workflow), "::jsonb");
   if (patch.script !== undefined) push("script", patch.script);
-  if (patch.modelOverride !== undefined) push("model_override", JSON.stringify(patch.modelOverride), "::jsonb");
 
   push("updated_at", nowIso());
   values.push(id);
@@ -398,8 +392,8 @@ export async function importAll(data: BackupFile): Promise<void> {
     await tx.exec("delete from messages; delete from sessions; delete from characters; delete from settings;");
     for (const c of data.characters) {
       await tx.query(
-        `insert into characters (id,name,avatar,tagline,description,greeting,system_prompt,context_blocks,quick_phrases,workflow,script,model_override,created_at,updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12::jsonb,$13,$14)`,
+        `insert into characters (id,name,avatar,tagline,description,greeting,system_prompt,context_blocks,quick_phrases,workflow,script,created_at,updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13)`,
         [
           c.id,
           c.name,
@@ -412,7 +406,6 @@ export async function importAll(data: BackupFile): Promise<void> {
           JSON.stringify(c.quickPhrases ?? []),
           JSON.stringify(c.workflow ?? { enabled: false, nodes: [], edges: [] }),
           c.script ?? "",
-          JSON.stringify(c.modelOverride ?? {}),
           c.createdAt,
           c.updatedAt,
         ],

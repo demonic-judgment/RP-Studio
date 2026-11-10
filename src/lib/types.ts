@@ -50,6 +50,7 @@ export interface QuickPhrase {
   content: string;
 }
 
+/** 一次请求实际用到的模型参数（由档案 + 覆盖解析而来） */
 export interface ModelConfig {
   baseUrl: string;
   apiKey: string;
@@ -58,7 +59,12 @@ export interface ModelConfig {
   params: string;
 }
 
-export type ModelOverride = Partial<ModelConfig>;
+/** 全局保存的一条命名模型档案 */
+export interface ModelProfile extends ModelConfig {
+  id: string;
+  /** 展示名，仅用于界面区分 */
+  name: string;
+}
 
 export interface Character {
   id: string;
@@ -73,7 +79,6 @@ export interface Character {
   quickPhrases: QuickPhrase[];
   workflow: Workflow;
   script: string;
-  modelOverride: ModelOverride;
   createdAt: string;
   updatedAt: string;
 }
@@ -175,7 +180,10 @@ export interface AppSettings {
   theme: ThemeMode;
   accent: string;
   userName: string;
-  model: ModelConfig;
+  /** 模型档案列表，至少一条 */
+  models: ModelProfile[];
+  /** 当前激活档案的 id */
+  activeModelId: string;
   scriptTimeoutMs: number;
   stream: boolean;
   enterToSend: boolean;

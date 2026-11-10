@@ -31,6 +31,7 @@ import type {
 import { createNode, NODE_META, runWorkflow, validateWorkflow } from "../../lib/workflow";
 import { assembleContext } from "../../lib/context";
 import { useStore } from "../../lib/store";
+import { activeProfile, resolveModelConfig } from "../../lib/settings";
 import { safeJsonParse, uid } from "../../lib/utils";
 import { Button, IconButton } from "../ui/Button";
 import { Segmented } from "../ui/Tabs";
@@ -203,12 +204,7 @@ export function WorkflowEditor({
     setRunLogs([]);
     setRunResult(null);
     const assembled = assembleContext({ character, history: messages, input: testInput, userName });
-    const model = {
-      ...settings.model,
-      ...Object.fromEntries(
-        Object.entries(character.modelOverride ?? {}).filter(([, v]) => typeof v === "string" && v),
-      ),
-    };
+    const model = resolveModelConfig(settings);
     const result = await runWorkflow({
       workflow: graph,
       character,
@@ -244,7 +240,7 @@ export function WorkflowEditor({
     }
     if (node.kind === "llm") {
       const c = node.config as LlmNodeConfig;
-      return c.params?.trim() ? "参数覆盖已启用" : settings.model.model || "使用全局模型";
+      return c.params?.trim() ? "参数覆盖已启用" : resolveModelConfig(settings).model || "使用全局模型";
     }
     if (node.kind === "input") return "上下文装配结果 + 用户输入";
     return "写入最终回复";
@@ -658,7 +654,8 @@ export function WorkflowEditor({
                     <span className="mt-1 block text-[10.5px] text-danger">JSON 无效，运行时将报错</span>
                   )}
                   <span className="mt-1 block text-[10.5px] text-fg-subtle">
-                    模型：{character.modelOverride?.model || settings.model.model || "未配置"}
+                    模型：{resolveModelConfig(settings).model || "未配置"} · 档案「
+                    {activeProfile(settings).name}」
                   </span>
                 </label>
               )}

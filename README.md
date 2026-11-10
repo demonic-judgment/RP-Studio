@@ -58,7 +58,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 1. 定位目标消息，按 user / assistant 两种情形回溯 `input` 并 `truncateAfter` 截断后续消息；
 2. `assembleContext()` 按角色卡的上下文块产出 `ChatMessage[]`，附带 trace 与 token 估算；
 3. 角色卡若配置了前置脚本，`runScript()` 可返回新消息栈覆盖装配结果；
-4. `resolveModel()` 把全局模型配置与角色级 `modelOverride` 合并（只接受非空字符串字段）；
+4. `resolveModelConfig()` 取设置里「当前」那条模型档案（全局只有一份生效配置，角色卡不再单独绑定模型）；
 5. 分流：`chatCompletion()` 直接请求，或 `runWorkflow()` 走 DFS 节点编排；`onDelta` 只写内存里的 `stream.buffer`；
 6. `finish()` 在结束 / 中止 / 出错时**一次性**追加消息落库，状态为 `done` / `stopped` / `error`；中止与报错也会保留已生成的部分；
 7. 流式期间消息列表渲染一条 `streaming-virtual` 虚拟消息，不写库。
@@ -118,7 +118,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 组件 | 文件 | 要点 |
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
-| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` | 三个抽屉由 `store.drawer` 互斥；模型配置与角色卡都是**本地草稿**，点保存才落库；测试连接刻意用 `max_tokens: 24 + stream: false` 绕开用户参数 |
+| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接刻意用 `max_tokens: 24 + stream: false` 绕开用户参数 |
 | 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑重发 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；IME 保护 |
 | 编辑面板 | `src/components/character/ContextEditor.tsx`、`src/components/script/ScriptEditor.tsx`、`src/components/workflow/WorkflowEditor.tsx` | 原生 HTML5 拖拽排序 + 上下移按钮；脚本编辑器支持 Tab 插空格；工作流画布试运行不写库 |
 | 兜底 | `src/components/ErrorBoundary.tsx`、`src/components/home/Backdrop.tsx` | class 组件 `getDerivedStateFromError`；背景层固定 `-z-10` 且 `aria-hidden` |
@@ -150,7 +150,7 @@ RP-Studio/
    │  ├─ db.ts                  # PGlite 实例、建表、版本化迁移、重置
    │  ├─ repo.ts                # 仓储：CRUD / 导入导出 / 统计 / 消息截断
    │  ├─ store.ts               # zustand：数据流、发送与重新生成、流式状态、抽屉、Toast
-   │  ├─ settings.ts            # 默认模型配置、URL 规范化
+   │  ├─ settings.ts            # 模型档案（列表/当前）归一化与旧版迁移、URL 规范化
    │  ├─ context.ts             # 上下文装配引擎（排序 / 负数下标 / role 合并 / 插值）
    │  ├─ llm.ts                 # OpenAI 兼容请求、SSE 解析、中止、错误归类
    │  ├─ script.ts              # Worker 沙箱调用封装（超时、日志、结果）
@@ -180,7 +180,7 @@ RP-Studio/
 characters(
   id uuid pk, name text, avatar text, tagline text, description text,
   greeting text, system_prompt text, context_blocks jsonb, quick_phrases jsonb,
-  workflow jsonb, script text, model_override jsonb,
+  workflow jsonb, script text, model_override jsonb, -- 旧版角色级模型覆盖，现不使用
   created_at timestamptz, updated_at timestamptz
 )
 
@@ -202,6 +202,7 @@ schema_meta(id int pk, version int)
 ```
 
 - **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`），在事务内更新 `schema_meta`，升级不丢数据。
+- **模型档案**：`settings` 表的 `app` 行里存 `models: ModelProfile[]` + `activeModelId`。旧的单模型结构（`settings.app.model`）由 `normalizeSettings()` 在 `init()` / 导入备份时迁移成一条档案，其余设置原样保留；空数组、重复 id、`activeModelId` 不指向任何档案都会在归一化时修正。
 - **ID**：浏览器 `crypto.randomUUID()` 生成，不依赖 Postgres 扩展；`uid(prefix)` 加前缀。
 - **写入策略**：流式过程只在内存累积，结束后一次性落库；停止 / 出错也保存已生成部分。
 - **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。

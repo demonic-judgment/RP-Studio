@@ -3,11 +3,7 @@ import {
   Check,
   Database,
   Download,
-  Eye,
-  EyeOff,
   Palette,
-  Plug,
-  RotateCcw,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -15,14 +11,13 @@ import {
 } from "lucide-react";
 import { useStore } from "../../lib/store";
 import { ACCENT_PRESETS } from "../../lib/theme";
-import { DEFAULT_MODEL, DEFAULT_PARAMS } from "../../lib/settings";
-import { chatCompletion } from "../../lib/llm";
-import { formatBytes, safeJsonParse } from "../../lib/utils";
+import { formatBytes } from "../../lib/utils";
 import type { ThemeMode } from "../../lib/types";
 import { Drawer, DrawerHeader } from "../ui/Drawer";
-import { Tabs, Segmented, Pill } from "../ui/Tabs";
-import { Button, IconButton } from "../ui/Button";
-import { Field, Input, Textarea, Switch, Slider } from "../ui/Form";
+import { Tabs, Segmented } from "../ui/Tabs";
+import { Button } from "../ui/Button";
+import { Field, Input, Switch, Slider } from "../ui/Form";
+import { ModelSettings } from "./ModelSettings";
 
 type TabId = "theme" | "model" | "data";
 
@@ -38,10 +33,6 @@ export function SettingsDrawer() {
   const toast = useStore((s) => s.toast);
 
   const [tab, setTab] = useState<TabId>("theme");
-  const [modelDraft, setModelDraft] = useState(settings.model);
-  const [showKey, setShowKey] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [stats, setStats] = useState({ characters: 0, sessions: 0, messages: 0 });
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -49,7 +40,6 @@ export function SettingsDrawer() {
 
   useEffect(() => {
     if (!open) return;
-    setModelDraft(settings.model);
     void refreshStats().then(setStats);
     if (navigator.storage?.estimate) {
       void navigator.storage
@@ -57,27 +47,7 @@ export function SettingsDrawer() {
         .then((est) => setUsage({ usage: est.usage ?? 0, quota: est.quota ?? 0 }))
         .catch(() => setUsage(null));
     }
-  }, [open, refreshStats, settings.model]);
-
-  const paramsCheck = safeJsonParse<Record<string, unknown>>(modelDraft.params);
-  const modelDirty = JSON.stringify(modelDraft) !== JSON.stringify(settings.model);
-
-  const testConnection = async () => {
-    setTesting(true);
-    setTestResult(null);
-    try {
-      const result = await chatCompletion({
-        config: { ...modelDraft, params: JSON.stringify({ max_tokens: 24 }) },
-        messages: [{ role: "user", content: "回复两个字：可用" }],
-        stream: false,
-      });
-      setTestResult({ ok: true, text: result.content.slice(0, 80) || "连接成功（空回复）" });
-    } catch (err) {
-      setTestResult({ ok: false, text: err instanceof Error ? err.message : String(err) });
-    } finally {
-      setTesting(false);
-    }
-  };
+  }, [open, refreshStats]);
 
   const handleImport = async (file: File) => {
     if (!window.confirm("导入会覆盖当前浏览器里的全部角色、会话与设置，且无法撤销。确定继续？")) {
@@ -188,109 +158,7 @@ export function SettingsDrawer() {
 
         {tab === "model" && (
           <div className="space-y-5">
-            <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
-              使用 OpenAI 兼容接口。<span className="text-fg">Base URL、Key、模型名分开填写</span>，
-              其余参数（temperature、top_p、max_tokens、response_format…）在下方以 JSON 透传，不做任何裁剪。
-            </div>
-
-            <Field label="Base URL" hint="例如 https://api.openai.com/v1 或你的中转地址">
-              <Input
-                value={modelDraft.baseUrl}
-                onChange={(e) => setModelDraft({ ...modelDraft, baseUrl: e.target.value })}
-                placeholder="https://api.openai.com/v1"
-                spellCheck={false}
-              />
-            </Field>
-
-            <Field label="API Key" hint="仅保存在本机 PGlite，不会上传">
-              <div className="relative">
-                <Input
-                  type={showKey ? "text" : "password"}
-                  value={modelDraft.apiKey}
-                  onChange={(e) => setModelDraft({ ...modelDraft, apiKey: e.target.value })}
-                  placeholder="sk-…"
-                  className="pr-10"
-                  spellCheck={false}
-                />
-                <IconButton
-                  label={showKey ? "隐藏" : "显示"}
-                  className="absolute right-1 top-1"
-                  onClick={() => setShowKey((v) => !v)}
-                >
-                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                </IconButton>
-              </div>
-            </Field>
-
-            <Field label="模型名称">
-              <Input
-                value={modelDraft.model}
-                onChange={(e) => setModelDraft({ ...modelDraft, model: e.target.value })}
-                placeholder="gpt-4o-mini"
-                spellCheck={false}
-              />
-            </Field>
-
-            <Field
-              label="额外参数（JSON 透传）"
-              error={paramsCheck.ok ? undefined : `JSON 无效：${paramsCheck.error}`}
-              hint={paramsCheck.ok ? "会展开合并进请求体；model / messages / stream 由应用控制" : undefined}
-              action={
-                <button
-                  type="button"
-                  onClick={() => setModelDraft({ ...modelDraft, params: DEFAULT_PARAMS })}
-                  className="text-[11px] text-fg-subtle transition-colors hover:text-primary"
-                >
-                  恢复默认
-                </button>
-              }
-            >
-              <Textarea
-                value={modelDraft.params}
-                onChange={(e) => setModelDraft({ ...modelDraft, params: e.target.value })}
-                spellCheck={false}
-                className="min-h-[150px] font-mono text-[12px] leading-relaxed"
-              />
-            </Field>
-
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={testConnection}
-                disabled={testing || !paramsCheck.ok}
-                leading={<Plug size={13} />}
-              >
-                {testing ? "测试中…" : "测试连接"}
-              </Button>
-              <Button
-                variant={modelDirty ? "primary" : "ghost"}
-                size="sm"
-                disabled={!modelDirty || !paramsCheck.ok}
-                onClick={() => {
-                  void setSettings({ model: modelDraft });
-                  toast({ title: "模型配置已保存", variant: "success" });
-                }}
-              >
-                保存配置
-              </Button>
-              {modelDirty && <Pill tone="muted">未保存</Pill>}
-            </div>
-
-            {testResult && (
-              <div
-                className={`rounded-xl px-inset-lg py-2.5 text-[12px] leading-relaxed ${
-                  testResult.ok
-                    ? "bg-success/10 text-fg-muted"
-                    : "bg-danger/10 text-fg-muted"
-                }`}
-              >
-                <p className={testResult.ok ? "font-medium text-success" : "font-medium text-danger"}>
-                  {testResult.ok ? "连接成功" : "连接失败"}
-                </p>
-                <p className="mt-0.5 break-words">{testResult.text}</p>
-              </div>
-            )}
+            <ModelSettings />
 
             <div className="space-y-3 rounded-2xl bg-surface-2 p-inset-sm">
               <Row label="流式输出" hint="逐字返回，实时渲染">
@@ -322,15 +190,6 @@ export function SettingsDrawer() {
                 />
               </div>
             </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              leading={<RotateCcw size={13} />}
-              onClick={() => setModelDraft(DEFAULT_MODEL)}
-            >
-              恢复默认模型配置
-            </Button>
           </div>
         )}
 
