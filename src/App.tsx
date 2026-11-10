@@ -1,0 +1,89 @@
+import { useEffect } from "react";
+import { useStore } from "./lib/store";
+import { applyTheme, watchSystemTheme } from "./lib/theme";
+import { Backdrop } from "./components/home/Backdrop";
+import { ChatView } from "./components/chat/ChatView";
+import { LeftDrawer } from "./components/drawers/LeftDrawer";
+import { SettingsDrawer } from "./components/drawers/SettingsDrawer";
+import { CharacterDrawer } from "./components/drawers/CharacterDrawer";
+import { Toasts } from "./components/ui/Toasts";
+import { Button } from "./components/ui/Button";
+
+export default function App() {
+  const ready = useStore((s) => s.ready);
+  const initError = useStore((s) => s.initError);
+  const init = useStore((s) => s.init);
+  const theme = useStore((s) => s.settings.theme);
+  const accent = useStore((s) => s.settings.accent);
+
+  useEffect(() => {
+    void init();
+  }, [init]);
+
+  useEffect(() => {
+    applyTheme(theme, accent);
+    return watchSystemTheme(theme, accent, () => {
+      // 系统主题变化时重新应用 CSS 变量
+      applyTheme(theme, accent);
+    });
+  }, [theme, accent]);
+
+  if (!ready) {
+    return (
+      <div className="relative flex h-full items-center justify-center">
+        <Backdrop />
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="absolute inset-0 scale-150 rounded-full bg-primary/25 blur-2xl" />
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-[15px] font-bold text-on-primary shadow-float">
+              RP
+            </div>
+          </div>
+          <div className="text-center">
+            <p className="text-[13px] font-medium text-fg">正在启动本地数据库</p>
+            <p className="mt-1 text-[11.5px] text-fg-subtle">PGlite · WASM Postgres 首次加载稍慢</p>
+          </div>
+          <div className="h-1 w-40 overflow-hidden rounded-full bg-surface-3">
+            <div className="h-full w-1/2 shimmer rounded-full" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (initError) {
+    return (
+      <div className="relative flex h-full items-center justify-center px-6">
+        <Backdrop />
+        <div className="max-w-[420px] rounded-3xl border border-line bg-surface p-6 text-center shadow-card">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 text-lg">
+            ⚠️
+          </div>
+          <h1 className="text-[16px] font-semibold text-fg">数据库启动失败</h1>
+          <p className="mt-2 break-words text-[12.5px] leading-relaxed text-fg-muted">{initError}</p>
+          <p className="mt-1 text-[11.5px] leading-relaxed text-fg-subtle">
+            可能是浏览器禁用了 IndexedDB，或处于无痕模式。
+          </p>
+          <Button variant="primary" className="mt-4 w-full" onClick={() => window.location.reload()}>
+            重新加载
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full w-full overflow-hidden">
+      <Backdrop />
+
+      <div className="relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden bg-surface/55 backdrop-blur-[2px] sm:border-x sm:border-line/80 sm:shadow-[0_0_100px_-40px_rgba(28,25,20,0.3)]">
+        <ChatView />
+      </div>
+
+      <LeftDrawer />
+      <SettingsDrawer />
+      <CharacterDrawer />
+      <Toasts />
+    </div>
+  );
+}

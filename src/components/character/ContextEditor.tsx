@@ -1,0 +1,404 @@
+import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  GripVertical,
+  History,
+  MessageSquare,
+  Plus,
+  Sparkles,
+  Trash2,
+  Type,
+} from "lucide-react";
+import type { Character, ContextBlock, Message, Role } from "../../lib/types";
+import { assembleContext, blockKindMeta, describeHistoryBlock, newBlockId } from "../../lib/context";
+import { cn } from "../../lib/utils";
+import { IconButton } from "../ui/Button";
+import { Segmented } from "../ui/Tabs";
+import { Switch } from "../ui/Form";
+
+export function ContextEditor({
+  character,
+  blocks,
+  onChange,
+  history,
+  userName,
+}: {
+  character: Character;
+  blocks: ContextBlock[];
+  onChange: (blocks: ContextBlock[]) => void;
+  history: Message[];
+  userName: string;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= blocks.length) return;
+    const next = [...blocks];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange(next);
+  };
+
+  const patch = (id: string, value: Partial<ContextBlock>) => {
+    onChange(blocks.map((b) => (b.id === id ? ({ ...b, ...value } as ContextBlock) : b)));
+  };
+
+  const remove = (id: string) => onChange(blocks.filter((b) => b.id !== id));
+
+  const add = (kind: ContextBlock["kind"]) => {
+    let block: ContextBlock;
+    if (kind === "history") block = { id: newBlockId(), kind, enabled: true, from: -12, to: -1 };
+    else if (kind === "custom")
+      block = { id: newBlockId(), kind, enabled: true, role: "system", content: "" };
+    else if (kind === "system") block = { id: newBlockId(), kind, enabled: true };
+    else block = { id: newBlockId(), kind, enabled: true };
+    onChange([...blocks, block]);
+    setExpanded(block.id);
+  };
+
+  const preview = useMemo(
+    () =>
+      assembleContext({
+        character: { ...character, contextBlocks: blocks },
+        history,
+        input: "（这里预览当前用户输入）",
+        userName,
+      }),
+    [blocks, character, history, userName],
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11.5px] leading-relaxed text-fg-subtle">
+          顺序即上下文顺序。拖动左侧手柄排序，系统会按序拼装为最终 messages。
+        </p>
+        <button
+          onClick={() => setShowPreview((v) => !v)}
+          className={cn(
+            "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+            showPreview
+              ? "border-primary/40 bg-primary-container text-on-primary-container"
+              : "border-line text-fg-subtle hover:text-fg-muted",
+          )}
+        >
+          <Eye size={12} />
+          预览
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {blocks.map((block, index) => {
+          const meta = blockKindMeta(block.kind);
+          const isOpen = expanded === block.id;
+          const icon =
+            block.kind === "history" ? (
+              <History size={13} />
+            ) : block.kind === "custom" ? (
+              <Type size={13} />
+            ) : block.kind === "user" ? (
+              <MessageSquare size={13} />
+            ) : (
+              <Sparkles size={13} />
+            );
+
+          return (
+            <div
+              key={block.id}
+              draggable
+              onDragStart={(e) => {
+                setDragIndex(index);
+                e.dataTransfer.effectAllowed = "move";
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverIndex(index);
+              }}
+              onDragEnd={() => {
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIndex !== null) move(dragIndex, index);
+                setDragIndex(null);
+                setOverIndex(null);
+              }}
+              className={cn(
+                "group rounded-2xl border bg-surface transition-all",
+                block.enabled ? "border-line" : "border-dashed border-line opacity-60",
+                overIndex === index && dragIndex !== null && dragIndex !== index && "ring-2 ring-primary/40",
+                dragIndex === index && "opacity-50",
+              )}
+            >
+              <div className="flex items-start gap-2 px-2.5 py-2.5">
+                <span className="mt-0.5 flex h-6 w-4 cursor-grab items-center justify-center text-fg-subtle active:cursor-grabbing">
+                  <GripVertical size={14} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2 text-[10.5px] font-medium",
+                        meta.tone,
+                      )}
+                    >
+                      {icon}
+                      {meta.label}
+                    </span>
+                    <span className="truncate text-[10.5px] text-fg-subtle">
+                      {block.label && block.label !== meta.label ? block.label : meta.hint}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : block.id)}
+                    className="mt-1 flex w-full items-start gap-1 text-left"
+                  >
+                    <span className="line-clamp-1 flex-1 text-[12px] leading-relaxed text-fg-muted">
+                      {block.kind === "history"
+                        ? `${describeHistoryBlock(block.from, block.to)} · 历史共 ${history.length} 条`
+                        : block.kind === "custom"
+                          ? `${block.role}：${block.content || "空内容"}`
+                          : block.kind === "system"
+                            ? character.systemPrompt || "尚未填写系统提示"
+                            : "当前输入会插入到这里"}
+                    </span>
+                    <ChevronDown
+                      size={13}
+                      className={cn(
+                        "mt-0.5 shrink-0 text-fg-subtle transition-transform",
+                        isOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex items-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
+                    <IconButton label="上移" className="h-6 w-6" onClick={() => move(index, index - 1)}>
+                      <ArrowUp size={12} />
+                    </IconButton>
+                    <IconButton label="下移" className="h-6 w-6" onClick={() => move(index, index + 1)}>
+                      <ArrowDown size={12} />
+                    </IconButton>
+                    <IconButton
+                      label="删除此块"
+                      className="h-6 w-6 hover:text-danger"
+                      onClick={() => remove(block.id)}
+                    >
+                      <Trash2 size={12} />
+                    </IconButton>
+                  </div>
+                  <Switch
+                    size="sm"
+                    checked={block.enabled}
+                    onChange={(enabled) => patch(block.id, { enabled })}
+                    label="启用此块"
+                  />
+                </div>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {isOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                    className="overflow-hidden"
+                  >
+                    <div className="space-y-3 border-t border-line px-3 py-3">
+                      {block.kind === "system" && (
+                        <div>
+                          <p className="mb-1 text-[11px] text-fg-subtle">来自角色设定（在「基础」里编辑）</p>
+                          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-3 py-2 font-sans text-[12px] leading-relaxed text-fg-muted">
+                            {character.systemPrompt || "（尚未填写系统提示）"}
+                          </pre>
+                        </div>
+                      )}
+
+                      {block.kind === "history" && (
+                        <>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {[
+                              { label: "全部", from: 0, to: -1 },
+                              { label: "最近 5 条", from: -5, to: -1 },
+                              { label: "最近 12 条", from: -12, to: -1 },
+                              { label: "最近 20 条", from: -20, to: -1 },
+                            ].map((preset) => (
+                              <button
+                                key={preset.label}
+                                onClick={() => patch(block.id, { from: preset.from, to: preset.to })}
+                                className={cn(
+                                  "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                                  block.from === preset.from && block.to === preset.to
+                                    ? "border-primary/40 bg-primary-container text-on-primary-container"
+                                    : "border-line text-fg-subtle hover:text-fg-muted",
+                                )}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-end gap-2">
+                            <label className="flex-1">
+                              <span className="mb-1 block text-[11px] text-fg-subtle">起始下标</span>
+                              <input
+                                type="number"
+                                value={block.from}
+                                onChange={(e) => patch(block.id, { from: Number(e.target.value) })}
+                                className="h-9 w-full rounded-lg border border-line bg-surface px-2 font-mono text-[12px] outline-none focus:border-primary/40"
+                              />
+                            </label>
+                            <span className="pb-2 text-fg-subtle">→</span>
+                            <label className="flex-1">
+                              <span className="mb-1 block text-[11px] text-fg-subtle">结束下标</span>
+                              <input
+                                type="number"
+                                value={block.to}
+                                onChange={(e) => patch(block.id, { to: Number(e.target.value) })}
+                                className="h-9 w-full rounded-lg border border-line bg-surface px-2 font-mono text-[12px] outline-none focus:border-primary/40"
+                              />
+                            </label>
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-fg-subtle">
+                            负数表示倒数：`[-5,-1]` = 倒数第 5 条到倒数第 1 条。
+                            当前历史共 {history.length} 条。
+                          </p>
+                        </>
+                      )}
+
+                      {block.kind === "custom" && (
+                        <>
+                          <div>
+                            <p className="mb-1.5 text-[11px] text-fg-subtle">消息角色</p>
+                            <Segmented<Role>
+                              size="sm"
+                              value={block.role}
+                              onChange={(role) => patch(block.id, { role })}
+                              options={[
+                                { id: "system", label: "system" },
+                                { id: "user", label: "user" },
+                                { id: "assistant", label: "assistant" },
+                              ]}
+                            />
+                          </div>
+                          <textarea
+                            value={block.content}
+                            onChange={(e) => patch(block.id, { content: e.target.value })}
+                            placeholder="自定义提示词，可使用 {{char}} / {{user}} / {{input}} / {{time}} 变量"
+                            className="min-h-[110px] w-full resize-y rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:border-primary/40"
+                          />
+                          <p className="text-[11px] text-fg-subtle">
+                            支持变量：{"{{char}}"} {"{{user}}"} {"{{input}}"} {"{{time}}"}
+                          </p>
+                        </>
+                      )}
+
+                      {block.kind === "user" && (
+                        <p className="text-[11.5px] leading-relaxed text-fg-subtle">
+                          当前用户输入的占位块。拖动它决定输入在消息栈中的位置；缺失时会自动追加到末尾。
+                        </p>
+                      )}
+
+                      <label className="flex items-center gap-2 text-[11px] text-fg-subtle">
+                        <span className="shrink-0">备注名</span>
+                        <input
+                          value={block.label ?? ""}
+                          onChange={(e) => patch(block.id, { label: e.target.value })}
+                          placeholder="可选"
+                          className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-[12px] outline-none focus:border-primary/40"
+                        />
+                      </label>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-fg-subtle">添加块</span>
+        {(
+          [
+            { kind: "system", label: "系统提示" },
+            { kind: "history", label: "历史对话" },
+            { kind: "custom", label: "自定义提示词" },
+            { kind: "user", label: "用户回复" },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.kind}
+            onClick={() => add(item.kind)}
+            className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-colors hover:border-line-strong hover:bg-surface-2"
+          >
+            <Plus size={11} />
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {showPreview && (
+        <div className="rounded-2xl border border-line bg-surface-2/40 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-subtle">
+              装配预览 · {preview.messages.length} 条 · ≈ {preview.tokens} tokens
+            </p>
+            <button
+              onClick={() => setShowPreview(false)}
+              className="text-fg-subtle hover:text-fg-muted"
+              aria-label="关闭预览"
+            >
+              <EyeOff size={13} />
+            </button>
+          </div>
+          <div className="space-y-2">
+            {preview.messages.map((msg, i) => (
+              <div key={i} className="rounded-xl border border-line bg-surface px-2.5 py-2">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "rounded px-1.5 py-0.5 font-mono text-[10px]",
+                      msg.role === "system"
+                        ? "bg-primary-container text-on-primary-container"
+                        : msg.role === "user"
+                          ? "bg-surface-3 text-fg-muted"
+                          : "bg-secondary-container text-on-primary-container",
+                    )}
+                  >
+                    {msg.role}
+                  </span>
+                  <span className="text-[10px] text-fg-subtle">{msg.content.length} 字</span>
+                </div>
+                <p className="line-clamp-4 whitespace-pre-wrap break-words text-[11.5px] leading-relaxed text-fg-muted">
+                  {msg.content}
+                </p>
+              </div>
+            ))}
+            {preview.messages.length === 0 && (
+              <p className="text-[11.5px] text-fg-subtle">所有块都被禁用，或内容为空。</p>
+            )}
+          </div>
+          <div className="mt-2 space-y-0.5 border-t border-line pt-2">
+            {preview.trace.map((item) => (
+              <div key={item.blockId} className="flex items-center justify-between text-[10.5px] text-fg-subtle">
+                <span>{blockKindMeta(item.kind).label}</span>
+                <span>{item.note}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

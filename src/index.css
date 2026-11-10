@@ -1,0 +1,408 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* ------------------------------------------------------------------ *
+ * Material 3 设计令牌 —— 全部走 CSS 变量，强调色由 [data-accent] 切换
+ * ------------------------------------------------------------------ */
+
+:root {
+  --font-sans: "Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+
+  --bg: #f8f7f4;
+  --bg-tint: #f1efea;
+  --surface: #ffffff;
+  --surface-2: #f4f2ee;
+  --surface-3: #ece9e3;
+  --border: #e6e2db;
+  --border-strong: #d6d1c8;
+  --fg: #1b1a17;
+  --fg-muted: #6d6a63;
+  --fg-subtle: #9c988f;
+
+  --accent: #6750a4;
+  --primary: var(--accent);
+  --primary-hover: color-mix(in oklab, var(--accent) 86%, #000);
+  --on-primary: #ffffff;
+  --primary-container: color-mix(in oklab, var(--accent) 13%, #fff);
+  --on-primary-container: color-mix(in oklab, var(--accent) 72%, #000);
+  --secondary-container: color-mix(in oklab, var(--accent) 7%, #fff);
+  --ring: color-mix(in oklab, var(--accent) 45%, transparent);
+
+  --bubble-user: color-mix(in oklab, var(--accent) 10%, #fff);
+  --danger: #b3261e;
+  --success: #2e6b3e;
+
+  /* shadcn/ui 兼容别名（便于后续用 CLI 追加组件） */
+  --muted: var(--surface-2);
+  --muted-foreground: var(--fg-muted);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --accent-soft: var(--secondary-container);
+  --accent-foreground: var(--fg);
+  --destructive: var(--danger);
+  --destructive-foreground: #ffffff;
+  --input: var(--border);
+
+  --shadow-sm: 0 1px 2px rgba(28, 25, 20, 0.05), 0 1px 1px rgba(28, 25, 20, 0.03);
+  --shadow-md: 0 8px 24px -12px rgba(28, 25, 20, 0.18), 0 2px 6px rgba(28, 25, 20, 0.04);
+  --shadow-lg: 0 24px 60px -20px rgba(28, 25, 20, 0.28), 0 4px 12px rgba(28, 25, 20, 0.06);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-theme="dark"] {
+  --bg: #0e0e10;
+  --bg-tint: #141416;
+  --surface: #18181b;
+  --surface-2: #202024;
+  --surface-3: #29292e;
+  --border: #2b2b31;
+  --border-strong: #3d3d45;
+  --fg: #f0efec;
+  --fg-muted: #a5a29b;
+  --fg-subtle: #75726b;
+
+  --primary: color-mix(in oklab, var(--accent) 62%, #fff);
+  --primary-hover: color-mix(in oklab, var(--accent) 50%, #fff);
+  --on-primary: #14121a;
+  --primary-container: color-mix(in oklab, var(--accent) 30%, #14121a);
+  --on-primary-container: color-mix(in oklab, var(--accent) 22%, #fff);
+  --secondary-container: color-mix(in oklab, var(--accent) 14%, #14121a);
+  --bubble-user: color-mix(in oklab, var(--accent) 26%, #14121a);
+  --danger: #f2b8b5;
+  --success: #9ed9a8;
+
+  --muted: var(--surface-2);
+  --muted-foreground: var(--fg-muted);
+  --card: var(--surface);
+  --card-foreground: var(--fg);
+  --popover: var(--surface);
+  --popover-foreground: var(--fg);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--fg);
+  --accent-soft: var(--secondary-container);
+  --accent-foreground: var(--fg);
+  --destructive: var(--danger);
+  --destructive-foreground: #14121a;
+  --input: var(--border);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.85);
+}
+
+/* Material 强调色预设 */
+[data-accent="violet"] { --accent: #6750a4; }
+[data-accent="indigo"] { --accent: #4355b9; }
+[data-accent="blue"] { --accent: #0b57d0; }
+[data-accent="teal"] { --accent: #00696d; }
+[data-accent="green"] { --accent: #3f6b32; }
+[data-accent="amber"] { --accent: #8a6100; }
+[data-accent="orange"] { --accent: #a1481c; }
+[data-accent="rose"] { --accent: #9b3f5f; }
+[data-accent="slate"] { --accent: #4a5a63; }
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-tint: var(--bg-tint);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-on-primary: var(--on-primary);
+  --color-primary-container: var(--primary-container);
+  --color-on-primary-container: var(--on-primary-container);
+  --color-secondary-container: var(--secondary-container);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary-foreground: var(--on-primary);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent-soft);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+
+  --shadow-soft: var(--shadow-sm);
+  --shadow-card: var(--shadow-md);
+  --shadow-float: var(--shadow-lg);
+
+  --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--accent) 24%, transparent);
+  }
+
+  input,
+  textarea,
+  button,
+  select {
+    font: inherit;
+    color: inherit;
+  }
+
+  textarea {
+    resize: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--fg-subtle) 35%, transparent);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--fg-subtle) 60%, transparent);
+    background-clip: padding-box;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: color-mix(in oklab, var(--surface) 78%, transparent);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  }
+
+  .glass-strong {
+    background: color-mix(in oklab, var(--surface) 92%, transparent);
+    backdrop-filter: blur(28px) saturate(1.5);
+    -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .drag-none {
+    -webkit-user-drag: none;
+    user-select: none;
+  }
+
+  .animate-in-up {
+    animation: in-up 0.32s var(--ease-out) both;
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--fg-subtle) 12%, transparent) 25%,
+      color-mix(in oklab, var(--fg-subtle) 26%, transparent) 37%,
+      color-mix(in oklab, var(--fg-subtle) 12%, transparent) 63%
+    );
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease infinite;
+  }
+}
+
+@keyframes in-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@keyframes drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(3%, -4%, 0) scale(1.06);
+  }
+  66% {
+    transform: translate3d(-2%, 3%, 0) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Markdown 排版 */
+.md {
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.md > * + * {
+  margin-top: 0.8em;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.15em;
+}
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md h3 { font-size: 1.05em; }
+.md ul,
+.md ol {
+  padding-left: 1.35em;
+  margin-top: 0.5em;
+}
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li + li { margin-top: 0.25em; }
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 0.14em 0.38em;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.md pre {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+.md pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+.md blockquote {
+  border-left: 3px solid var(--border-strong);
+  padding-left: 0.9em;
+  color: var(--fg-muted);
+  margin-top: 0.8em;
+}
+.md blockquote p + p {
+  margin-top: 0.5em;
+}
+.md a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.3em 0;
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88em;
+}
+.md th,
+.md td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.md th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+.md strong {
+  font-weight: 650;
+}
