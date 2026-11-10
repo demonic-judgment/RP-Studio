@@ -23,7 +23,7 @@ export function ChatHeader({
           onClick={onOpenLeft}
           aria-label="角色与会话"
           title="角色与会话"
-          className="group flex h-9 items-center gap-1 rounded-xl px-1 transition-colors hover:bg-surface-2"
+          className="group flex h-9 items-center gap-1 rounded-xl px-inset-tight transition-colors hover:bg-surface-2"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-primary text-[10.5px] font-bold tracking-tight text-on-primary shadow-soft transition-transform group-hover:scale-105">
             RP
@@ -36,10 +36,10 @@ export function ChatHeader({
 
       <button
         onClick={onOpenLeft}
-        className="group flex min-w-0 max-w-[52%] items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-surface-2"
+        className="group flex min-w-0 max-w-[52%] items-center gap-2.5 rounded-xl px-inset-lg py-2 transition-colors hover:bg-surface-2"
         title="切换角色与会话"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] border border-line bg-surface text-[16px] shadow-soft transition-transform group-hover:scale-105">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-surface-2 text-[16px] shadow-soft transition-transform group-hover:scale-105">
           {character.avatar}
         </span>
         <span className="min-w-0 text-left">

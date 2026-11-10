@@ -84,10 +84,10 @@ export function ContextEditor({
         <button
           onClick={() => setShowPreview((v) => !v)}
           className={cn(
-            "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+            "flex shrink-0 items-center gap-1 rounded-full px-inset-pill py-1.5 text-[11px] transition-colors",
             showPreview
-              ? "border-primary/40 bg-primary-container text-on-primary-container"
-              : "border-line text-fg-subtle hover:text-fg-muted",
+              ? "bg-primary-container text-on-primary-container"
+              : "bg-surface-2 text-fg-subtle hover:text-fg-muted",
           )}
         >
           <Eye size={12} />
@@ -133,13 +133,13 @@ export function ContextEditor({
                 setOverIndex(null);
               }}
               className={cn(
-                "group rounded-2xl border bg-surface transition-all",
-                block.enabled ? "border-line" : "border-dashed border-line opacity-60",
+                "group rounded-2xl bg-surface shadow-card transition-all",
+                block.enabled ? "" : "opacity-60",
                 overIndex === index && dragIndex !== null && dragIndex !== index && "ring-2 ring-primary/40",
                 dragIndex === index && "opacity-50",
               )}
             >
-              <div className="flex items-start gap-2 px-2.5 py-2.5">
+              <div className="flex items-start gap-2 px-inset-sm py-3">
                 <span className="mt-0.5 flex h-6 w-4 cursor-grab items-center justify-center text-fg-subtle active:cursor-grabbing">
                   <GripVertical size={14} />
                 </span>
@@ -147,7 +147,7 @@ export function ContextEditor({
                   <div className="flex items-center gap-1.5">
                     <span
                       className={cn(
-                        "flex h-[22px] shrink-0 items-center gap-1 rounded-full px-2 text-[10.5px] font-medium",
+                        "flex h-[22px] shrink-0 items-center gap-1 rounded-full px-inset-pill text-[10.5px] font-medium",
                         meta.tone,
                       )}
                     >
@@ -215,11 +215,11 @@ export function ContextEditor({
                     transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
                     className="overflow-hidden"
                   >
-                    <div className="space-y-3 border-t border-line px-3 py-3">
+                    <div className="space-y-3 border-t border-line px-inset-sm py-3">
                       {block.kind === "system" && (
                         <div>
                           <p className="mb-1 text-[11px] text-fg-subtle">来自角色设定（在「基础」里编辑）</p>
-                          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-3 py-2 font-sans text-[12px] leading-relaxed text-fg-muted">
+                          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-inset-lg py-2.5 font-sans text-[12px] leading-relaxed text-fg-muted">
                             {character.systemPrompt || "（尚未填写系统提示）"}
                           </pre>
                         </div>
@@ -238,10 +238,10 @@ export function ContextEditor({
                                 key={preset.label}
                                 onClick={() => patch(block.id, { from: preset.from, to: preset.to })}
                                 className={cn(
-                                  "rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                                  "rounded-full px-inset-pill py-1.5 text-[11px] transition-colors",
                                   block.from === preset.from && block.to === preset.to
-                                    ? "border-primary/40 bg-primary-container text-on-primary-container"
-                                    : "border-line text-fg-subtle hover:text-fg-muted",
+                                    ? "bg-primary-container text-on-primary-container"
+                                    : "bg-surface-2 text-fg-subtle hover:text-fg-muted",
                                 )}
                               >
                                 {preset.label}
@@ -255,7 +255,7 @@ export function ContextEditor({
                                 type="number"
                                 value={block.from}
                                 onChange={(e) => patch(block.id, { from: Number(e.target.value) })}
-                                className="h-9 w-full rounded-lg border border-line bg-surface px-2 font-mono text-[12px] outline-none focus:border-primary/40"
+                                className="h-9 w-full rounded-lg bg-surface-2 px-inset-md font-mono text-[12px] outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                               />
                             </label>
                             <span className="pb-2 text-fg-subtle">→</span>
@@ -265,7 +265,7 @@ export function ContextEditor({
                                 type="number"
                                 value={block.to}
                                 onChange={(e) => patch(block.id, { to: Number(e.target.value) })}
-                                className="h-9 w-full rounded-lg border border-line bg-surface px-2 font-mono text-[12px] outline-none focus:border-primary/40"
+                                className="h-9 w-full rounded-lg bg-surface-2 px-inset-md font-mono text-[12px] outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                               />
                             </label>
                           </div>
@@ -295,7 +295,7 @@ export function ContextEditor({
                             value={block.content}
                             onChange={(e) => patch(block.id, { content: e.target.value })}
                             placeholder="自定义提示词，可使用 {{char}} / {{user}} / {{input}} / {{time}} 变量"
-                            className="min-h-[110px] w-full resize-y rounded-xl border border-line bg-surface px-3 py-2 text-[12.5px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:border-primary/40"
+                            className="min-h-[110px] w-full resize-y rounded-xl bg-surface-2 px-inset-lg py-2.5 text-[12.5px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--ring)]/15"
                           />
                           <p className="text-[11px] text-fg-subtle">
                             支持变量：{"{{char}}"} {"{{user}}"} {"{{input}}"} {"{{time}}"}
@@ -315,7 +315,7 @@ export function ContextEditor({
                           value={block.label ?? ""}
                           onChange={(e) => patch(block.id, { label: e.target.value })}
                           placeholder="可选"
-                          className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-[12px] outline-none focus:border-primary/40"
+                          className="h-8 w-full rounded-lg bg-surface-2 px-inset-md text-[12px] outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                         />
                       </label>
                     </div>
@@ -340,7 +340,7 @@ export function ContextEditor({
           <button
             key={item.kind}
             onClick={() => add(item.kind)}
-            className="inline-flex items-center gap-1 rounded-full border border-line bg-surface px-2.5 py-1 text-[11px] text-fg-muted transition-colors hover:border-line-strong hover:bg-surface-2"
+            className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11px] text-fg-muted transition-colors hover:bg-surface-3"
           >
             <Plus size={11} />
             {item.label}
@@ -349,7 +349,7 @@ export function ContextEditor({
       </div>
 
       {showPreview && (
-        <div className="rounded-2xl border border-line bg-surface-2/40 p-3">
+        <div className="rounded-2xl bg-surface-2 p-inset-sm">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-fg-subtle">
               装配预览 · {preview.messages.length} 条 · ≈ {preview.tokens} tokens
@@ -364,7 +364,7 @@ export function ContextEditor({
           </div>
           <div className="space-y-2">
             {preview.messages.map((msg, i) => (
-              <div key={i} className="rounded-xl border border-line bg-surface px-2.5 py-2">
+              <div key={i} className="rounded-xl bg-surface px-inset-lg py-2.5">
                 <div className="mb-1 flex items-center gap-1.5">
                   <span
                     className={cn(

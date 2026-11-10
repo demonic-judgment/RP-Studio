@@ -88,14 +88,14 @@ export function ScriptEditor({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-line bg-surface-2/60">
+      <div className="overflow-hidden rounded-xl bg-surface-2">
         <textarea
           value={code}
           onChange={(e) => onChange(e.target.value)}
           spellCheck={false}
           placeholder="// 在这里写 JavaScript…"
           style={{ minHeight }}
-          className="w-full resize-y bg-transparent px-3 py-2.5 font-mono text-[12px] leading-[1.7] text-fg outline-none placeholder:text-fg-subtle"
+          className="w-full resize-y bg-transparent px-inset-lg py-3 font-mono text-[12px] leading-[1.7] text-fg outline-none placeholder:text-fg-subtle"
           onKeyDown={(e) => {
             if (e.key === "Tab") {
               e.preventDefault();
@@ -116,12 +116,12 @@ export function ScriptEditor({
         <input
           value={testInput}
           onChange={(e) => setTestInput(e.target.value)}
-          className="h-8 flex-1 rounded-lg border border-line bg-surface px-2.5 text-[12px] outline-none focus:border-primary/40"
+          className="h-8 flex-1 rounded-lg bg-surface-2 px-inset-md text-[12px] outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
         />
       </div>
 
       {(logs.length > 0 || result) && (
-        <div className="rounded-xl border border-line bg-[var(--surface-2)]/70 p-2.5">
+        <div className="rounded-xl bg-surface-2 p-inset-lg">
           <div className="mb-1.5 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-fg-muted">
               <Terminal size={12} />

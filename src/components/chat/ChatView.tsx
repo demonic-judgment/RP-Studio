@@ -33,7 +33,7 @@ export function ChatView() {
   if (!character) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-line bg-surface text-2xl shadow-card">
+        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-surface-2 text-2xl shadow-card">
           🎭
         </div>
         <div>

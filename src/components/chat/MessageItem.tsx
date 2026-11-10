@@ -111,7 +111,7 @@ export function MessageItem({
         className="group flex flex-col items-end gap-1.5"
       >
         {editing ? (
-          <div className="w-full max-w-[86%] rounded-2xl border border-primary/40 bg-surface p-3 shadow-card">
+          <div className="w-full max-w-[86%] rounded-2xl bg-surface p-inset-sm shadow-card">
             <textarea
               ref={textareaRef}
               value={draft}
@@ -152,7 +152,7 @@ export function MessageItem({
           </div>
         ) : (
           <>
-            <div className="max-w-[86%] whitespace-pre-wrap break-words rounded-[20px] rounded-br-[7px] bg-[var(--bubble-user)] px-4 py-2.5 text-[14.5px] leading-relaxed text-fg shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--accent)_12%,transparent)]">
+            <div className="max-w-[86%] whitespace-pre-wrap break-words rounded-[20px] rounded-br-[7px] bg-[var(--bubble-user)] px-inset-md py-3 text-[14.5px] leading-relaxed text-fg shadow-bubble">
               {message.content}
             </div>
             <div className="flex h-6 items-center pr-0.5">{actions}</div>
@@ -169,22 +169,22 @@ export function MessageItem({
       transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
       className="group flex gap-3"
     >
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[16px] ring-1 ring-line">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[16px]">
         {avatar}
       </div>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-2">
           <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
           {message.status === "stopped" && (
-            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] text-fg-subtle">已停止</span>
+            <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
           )}
           {message.meta.greeting && (
-            <span className="rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] text-fg-subtle">
+            <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">
               开场
             </span>
           )}
           {message.meta.viaWorkflow && (
-            <span className="rounded-full bg-primary-container px-1.5 py-0.5 text-[10px] text-on-primary-container">
+            <span className="rounded-full bg-primary-container px-inset-pill py-1 text-[10px] text-on-primary-container">
               工作流
             </span>
           )}
@@ -192,7 +192,7 @@ export function MessageItem({
         </div>
 
         {isError ? (
-          <div className="rounded-2xl border border-danger/25 bg-danger/5 px-4 py-3">
+          <div className="rounded-2xl bg-danger/10 px-inset-sm py-3">
             <p className="text-[13px] font-medium text-danger">生成失败</p>
             <p className="mt-1 whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-fg-muted">
               {message.meta.error || message.content}
@@ -238,13 +238,13 @@ function LogDisclosure({ logs }: { logs: string[] }) {
     <div className="mt-1">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 rounded-full border border-line bg-surface/60 px-2 py-0.5 text-[10.5px] text-fg-subtle transition-colors hover:text-fg-muted"
+        className="flex items-center gap-1 rounded-full bg-surface-2 px-inset-pill py-1 text-[10.5px] text-fg-subtle transition-colors hover:text-fg-muted"
       >
         <ChevronRight size={11} className={cn("transition-transform", open && "rotate-90")} />
         执行日志 · {logs.length}
       </button>
       {open && (
-        <div className="mt-1 space-y-0.5 rounded-xl border border-line bg-surface-2/60 px-2.5 py-2 font-mono text-[10.5px] leading-relaxed text-fg-muted">
+        <div className="mt-1 space-y-0.5 rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[10.5px] leading-relaxed text-fg-muted">
           {logs.map((line, i) => (
             <div key={i} className="break-all">{line}</div>
           ))}

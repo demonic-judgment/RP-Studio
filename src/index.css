@@ -34,6 +34,7 @@
   --bubble-user: color-mix(in oklab, var(--accent) 10%, #fff);
   --danger: #b3261e;
   --success: #2e6b3e;
+  --warning: #8a6100;
 
   /* shadcn/ui 兼容别名（便于后续用 CLI 追加组件） */
   --muted: var(--surface-2);
@@ -53,21 +54,27 @@
   --shadow-sm: 0 1px 2px rgba(28, 25, 20, 0.05), 0 1px 1px rgba(28, 25, 20, 0.03);
   --shadow-md: 0 8px 24px -12px rgba(28, 25, 20, 0.18), 0 2px 6px rgba(28, 25, 20, 0.04);
   --shadow-lg: 0 24px 60px -20px rgba(28, 25, 20, 0.28), 0 4px 12px rgba(28, 25, 20, 0.06);
+  --focus-shadow: 0 28px 70px -24px rgba(28, 25, 20, 0.38);
+  --column-shadow: 0 0 100px -40px rgba(28, 25, 20, 0.3);
+  --bubble-shadow: 0 1px 2px rgba(28, 25, 20, 0.05), 0 2px 8px -3px rgba(28, 25, 20, 0.1);
+  --select-caret: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8680' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>");
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 [data-theme="dark"] {
-  --bg: #0e0e10;
-  --bg-tint: #141416;
-  --surface: #18181b;
-  --surface-2: #202024;
-  --surface-3: #29292e;
-  --border: #2b2b31;
-  --border-strong: #3d3d45;
-  --fg: #f0efec;
-  --fg-muted: #a5a29b;
-  --fg-subtle: #75726b;
+  /* 暗色不是把浅色反过来：底色压得更沉，三级文字全部提亮，
+     最弱的一档（时间戳、提示、占位文字）也要在最高一档表面上读得清。 */
+  --bg: #0d0d0f;
+  --bg-tint: #131316;
+  --surface: #17171b;
+  --surface-2: #202027;
+  --surface-3: #2b2b33;
+  --border: #3a3a43;
+  --border-strong: #565660;
+  --fg: #f7f6f3;
+  --fg-muted: #c6c3bc;
+  --fg-subtle: #a8a59e;
 
   --primary: color-mix(in oklab, var(--accent) 62%, #fff);
   --primary-hover: color-mix(in oklab, var(--accent) 50%, #fff);
@@ -78,6 +85,7 @@
   --bubble-user: color-mix(in oklab, var(--accent) 26%, #14121a);
   --danger: #f2b8b5;
   --success: #9ed9a8;
+  --warning: #e8c482;
 
   --muted: var(--surface-2);
   --muted-foreground: var(--fg-muted);
@@ -96,6 +104,12 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 10px 30px -12px rgba(0, 0, 0, 0.7);
   --shadow-lg: 0 30px 70px -24px rgba(0, 0, 0, 0.85);
+  --focus-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.9),
+    0 0 0 1px color-mix(in oklab, var(--fg) 9%, transparent);
+  --column-shadow: 0 0 100px -40px rgba(0, 0, 0, 0.9);
+  --bubble-shadow: 0 1px 3px rgba(0, 0, 0, 0.5),
+    0 2px 10px -4px color-mix(in oklab, var(--fg) 16%, transparent);
+  --select-caret: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c6c3bc' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>");
 }
 
 /* Material 强调色预设 */
@@ -128,6 +142,7 @@
   --color-secondary-container: var(--secondary-container);
   --color-danger: var(--danger);
   --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-background: var(--bg);
   --color-foreground: var(--fg);
   --color-card: var(--card);
@@ -154,9 +169,20 @@
   --radius-lg: 22px;
   --radius-xl: 28px;
 
+  /* 圆角和内边距成对出现：弧度越大，文字离圆弧越远。
+     紧凑档只用于狭窄的浮层与图标工具条，胶囊单独给一档。 */
+  --spacing-inset-tight: 10px;
+  --spacing-inset-pill: 14px;
+  --spacing-inset-sm: 16px;
+  --spacing-inset-md: 20px;
+  --spacing-inset-lg: 24px;
+
   --shadow-soft: var(--shadow-sm);
   --shadow-card: var(--shadow-md);
   --shadow-float: var(--shadow-lg);
+  --shadow-focus: var(--focus-shadow);
+  --shadow-column: var(--column-shadow);
+  --shadow-bubble: var(--bubble-shadow);
 
   --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -269,6 +295,31 @@
   }
 }
 
+/* 可手动拉伸的多行输入：把滚动条和右下角的缩放手柄让进圆角内侧。
+   一圈透明右边框把浏览器的滚动条顶到内容区里侧，底色依旧铺满整个圆角；
+   右下角单独收窄，手柄才不会被大圆弧切掉半边。
+   放在无层区域，才能盖过 Tailwind 的 rounded-* 工具类。 */
+textarea[class*="resize-y"] {
+  border-right: 10px solid transparent;
+  border-bottom-right-radius: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--fg-subtle) 35%, transparent) transparent;
+}
+textarea[class*="resize-y"]::-webkit-scrollbar {
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  background-clip: padding-box;
+}
+textarea[class*="resize-y"]::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+textarea[class*="resize-y"]::-webkit-resizer {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12'><path d='M11 2 2 11M11 7 7 11' fill='none' stroke='%238a8680' stroke-opacity='.75' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 7px bottom 7px;
+}
+
 @keyframes in-up {
   from {
     opacity: 0;
@@ -344,19 +395,17 @@
 .md code {
   font-family: var(--font-mono);
   font-size: 0.86em;
-  padding: 0.14em 0.38em;
+  padding: 0.18em 0.5em;
   border-radius: 6px;
   background: var(--surface-2);
-  border: 1px solid var(--border);
 }
 .md pre {
   font-family: var(--font-mono);
   font-size: 0.82rem;
   line-height: 1.6;
   background: var(--surface-2);
-  border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 12px 14px;
+  padding: 14px 18px;
   overflow-x: auto;
 }
 .md pre code {
@@ -381,7 +430,7 @@
 }
 .md hr {
   border: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid color-mix(in oklab, var(--fg) 20%, transparent);
   margin: 1.3em 0;
 }
 .md table {

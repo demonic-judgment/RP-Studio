@@ -130,7 +130,7 @@ export function MessageList({
             }}
             aria-label="回到最新消息"
             style={{ bottom: bottomInset + 76 }}
-            className="absolute left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full border border-line bg-surface/90 text-fg-muted shadow-card backdrop-blur"
+            className="absolute left-1/2 z-10 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full bg-surface/90 text-fg-muted shadow-card backdrop-blur dark:bg-surface-2/95"
           >
             <ArrowDown size={15} />
           </motion.button>
@@ -157,7 +157,7 @@ function CharacterIntro({
       <div className="flex flex-col items-center text-center">
         <div className="relative">
           <div className="absolute inset-0 -z-10 scale-125 rounded-full bg-primary/18 blur-2xl" />
-          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[26px] border border-line bg-surface text-[34px] shadow-card">
+          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[26px] bg-surface-2 text-[34px] shadow-card">
             {character.avatar}
           </div>
         </div>
@@ -182,7 +182,7 @@ function CharacterIntro({
               <button
                 key={phrase.id}
                 onClick={() => onQuickPhrase(phrase.content)}
-                className="group flex items-start gap-2 rounded-2xl border border-line bg-surface/70 px-3.5 py-3 text-left text-[13px] leading-relaxed text-fg-muted transition-all hover:-translate-y-0.5 hover:border-line-strong hover:bg-surface hover:text-fg hover:shadow-card"
+                className="group flex items-start gap-2 rounded-2xl bg-surface-2 px-inset-sm py-3 text-left text-[13px] leading-relaxed text-fg-muted transition-all hover:-translate-y-0.5 hover:bg-surface-3 hover:text-fg hover:shadow-card"
               >
                 <ChevronRight size={14} className="mt-0.5 shrink-0 text-fg-subtle group-hover:text-primary" />
                 <span className="line-clamp-2">{phrase.content}</span>
@@ -204,7 +204,7 @@ function CharacterIntro({
 
 function Capability({ children }: { children: React.ReactNode }) {
   return (
-    <span className="rounded-full border border-line bg-surface/60 px-2.5 py-1">{children}</span>
+    <span className="rounded-full bg-surface-2 px-inset-pill py-1.5">{children}</span>
   );
 }
 
@@ -216,14 +216,14 @@ function StreamLogs({ logs }: { logs: { nodeTitle: string; message: string; leve
       <button
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-1.5 rounded-full border border-line bg-surface/70 px-2.5 py-1 text-[11px] text-fg-subtle transition-colors hover:text-fg-muted",
+          "flex items-center gap-1.5 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11px] text-fg-subtle transition-colors hover:text-fg-muted",
         )}
       >
         <ChevronRight size={12} className={cn("transition-transform", open && "rotate-90")} />
         工作流执行日志 · {logs.length}
       </button>
       {open && (
-        <div className="mt-1.5 space-y-1 rounded-xl border border-line bg-surface-2/60 px-3 py-2 font-mono text-[11px] leading-relaxed text-fg-muted">
+        <div className="mt-1.5 space-y-1 rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[11px] leading-relaxed text-fg-muted">
           {recent.map((log, i) => (
             <div key={i} className="flex gap-2">
               <span className="shrink-0 text-fg-subtle">[{log.nodeTitle}]</span>

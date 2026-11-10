@@ -36,7 +36,7 @@ export function Field({
 }
 
 const inputBase =
-  "w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg placeholder:text-fg-subtle transition-[border-color,box-shadow,background-color] duration-200 focus:border-primary/50 focus:bg-surface focus:outline-none focus:ring-4 focus:ring-[var(--ring)]/15";
+  "w-full rounded-xl bg-surface-2 px-inset-lg text-sm text-fg placeholder:text-fg-subtle transition-[box-shadow,background-color] duration-200 focus:outline-none focus:ring-4 focus:ring-[var(--ring)]/15";
 
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(inputBase, "h-10", className)} />;
@@ -46,7 +46,7 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return (
     <textarea
       {...props}
-      className={cn(inputBase, "min-h-[80px] resize-y py-2.5 leading-relaxed", className)}
+      className={cn(inputBase, "min-h-[80px] resize-y py-3 leading-relaxed", className)}
     />
   );
 }
@@ -64,10 +64,7 @@ export function Select({
         "h-10 appearance-none bg-[length:14px] bg-[right_10px_center] bg-no-repeat pr-8",
         className,
       )}
-      style={{
-        backgroundImage:
-          "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8680' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>\")",
-      }}
+      style={{ backgroundImage: "var(--select-caret)" }}
     >
       {children}
     </select>

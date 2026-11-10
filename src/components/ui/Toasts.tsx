@@ -18,7 +18,7 @@ export function Toasts() {
             exit={{ opacity: 0, y: 8, scale: 0.97 }}
             transition={{ type: "spring", stiffness: 420, damping: 32 }}
             onClick={() => dismiss(toast.id)}
-            className="pointer-events-auto flex max-w-[420px] items-start gap-2.5 rounded-2xl border border-line bg-surface/95 px-4 py-3 text-left shadow-float backdrop-blur-xl"
+            className="pointer-events-auto flex max-w-[420px] items-start gap-2.5 rounded-2xl bg-surface/95 px-inset-sm py-3 dark:bg-surface-2/95 text-left shadow-float backdrop-blur-xl"
           >
             <span
               className={

@@ -137,7 +137,7 @@ export function CharacterDrawer() {
           {tab === "basic" && (
             <div className="space-y-5">
               <div className="flex items-start gap-3">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-line bg-surface-2 text-[30px] shadow-soft">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-surface-2 text-[30px] shadow-soft">
                   {draft.avatar}
                 </div>
                 <div className="min-w-0 flex-1 space-y-2">
@@ -186,7 +186,7 @@ export function CharacterDrawer() {
                 />
               </Field>
 
-              <div className="rounded-2xl border border-line bg-surface-2/30 p-3.5">
+              <div className="rounded-2xl bg-surface-2 p-inset-sm">
                 <div className="mb-2 flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[12.5px] font-medium text-fg">初始消息</p>
@@ -194,7 +194,7 @@ export function CharacterDrawer() {
                       新建会话时自动写入的第一条角色消息，可直接开始对话。
                     </p>
                   </div>
-                  <span className="shrink-0 rounded-full border border-line bg-surface px-2 py-0.5 text-[10.5px] tabular-nums text-fg-subtle">
+                  <span className="shrink-0 rounded-full bg-surface px-inset-pill py-1 text-[10.5px] tabular-nums text-fg-subtle">
                     {draft.greeting.trim().length} 字
                   </span>
                 </div>
@@ -348,7 +348,7 @@ export function CharacterDrawer() {
 
           {tab === "workflow" && (
             <div className="space-y-4">
-              <div className="flex items-start justify-between gap-3 rounded-2xl border border-line bg-surface-2/40 p-3.5">
+              <div className="flex items-start justify-between gap-3 rounded-2xl bg-surface-2 p-inset-sm">
                 <div>
                   <p className="text-[12.5px] font-medium text-fg">启用工作流</p>
                   <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
@@ -365,13 +365,13 @@ export function CharacterDrawer() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <div className="rounded-xl border border-line px-3 py-2.5">
+                <div className="rounded-xl border border-line px-inset-lg py-3">
                   <p className="text-[10.5px] uppercase tracking-[0.1em] text-fg-subtle">节点</p>
                   <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
                     {draft.workflow?.nodes.length ?? 0}
                   </p>
                 </div>
-                <div className="rounded-xl border border-line px-3 py-2.5">
+                <div className="rounded-xl border border-line px-inset-lg py-3">
                   <p className="text-[10.5px] uppercase tracking-[0.1em] text-fg-subtle">连线</p>
                   <p className="mt-0.5 text-lg font-semibold tabular-nums text-fg">
                     {draft.workflow?.edges.length ?? 0}
@@ -380,10 +380,10 @@ export function CharacterDrawer() {
               </div>
 
               {workflowErrors.length > 0 ? (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11.5px] text-fg-muted">
+                <div className="rounded-xl bg-warning/10 px-inset-lg py-2.5 text-[11.5px] text-warning">
                   {workflowErrors.map((err) => (
                     <p key={err} className="flex items-center gap-1.5">
-                      <AlertTriangle size={12} className="text-amber-600" />
+                      <AlertTriangle size={12} />
                       {err}
                     </p>
                   ))}
@@ -408,7 +408,7 @@ export function CharacterDrawer() {
                 {(draft.workflow?.nodes ?? []).map((node) => (
                   <div
                     key={node.id}
-                    className="flex items-center justify-between rounded-lg border border-line bg-surface px-2.5 py-1.5 text-[11.5px]"
+                    className="flex items-center justify-between rounded-lg bg-surface-2 px-inset-md py-2 text-[11.5px]"
                   >
                     <span className="flex items-center gap-1.5 text-fg-muted">
                       <WorkflowIcon size={11} />
@@ -423,7 +423,7 @@ export function CharacterDrawer() {
 
           {tab === "script" && (
             <div className="space-y-4">
-              <div className="rounded-2xl border border-line bg-surface-2/40 p-3 text-[11.5px] leading-relaxed text-fg-muted">
+              <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
                 这是每次生成前运行的<span className="text-fg">前置脚本</span>：可以读取装配后的
                 messages，改写后返回 <code className="rounded bg-surface-3 px-1 font-mono text-[11px]">{`{ messages }`}</code>
                 ，即可影响最终请求。工作流中的「脚本」节点则在编排内单独执行。
@@ -496,7 +496,7 @@ function QuickPhrasesEditor({
         快捷语显示在输入框上方，点击即可填入。「标签」用于按钮，「内容」是实际发送的文本。
       </p>
       {phrases.map((phrase) => (
-        <div key={phrase.id} className="space-y-2 rounded-2xl border border-line p-3">
+        <div key={phrase.id} className="space-y-2 rounded-2xl border border-line p-inset-sm">
           <div className="flex items-center gap-2">
             <Input
               value={phrase.label}

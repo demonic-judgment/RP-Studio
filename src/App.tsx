@@ -55,7 +55,7 @@ export default function App() {
     return (
       <div className="relative flex h-full items-center justify-center px-6">
         <Backdrop />
-        <div className="max-w-[420px] rounded-3xl border border-line bg-surface p-6 text-center shadow-card">
+        <div className="max-w-[420px] rounded-3xl bg-surface p-inset-lg text-center shadow-card">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 text-lg">
             ⚠️
           </div>
@@ -76,7 +76,7 @@ export default function App() {
     <div className="relative h-full w-full overflow-hidden">
       <Backdrop />
 
-      <div className="relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden bg-surface/55 backdrop-blur-[2px] sm:border-x sm:border-line/80 sm:shadow-[0_0_100px_-40px_rgba(28,25,20,0.3)]">
+      <div className="relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden bg-surface/55 backdrop-blur-[2px] sm:border-x sm:border-line/80 sm:shadow-column">
         <ChatView />
       </div>
 

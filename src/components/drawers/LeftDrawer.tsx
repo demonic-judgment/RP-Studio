@@ -73,7 +73,7 @@ export function LeftDrawer() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="搜索角色或会话"
-            className="h-9 w-full rounded-xl border border-line bg-surface-2/60 pl-8.5 pr-3 text-[12.5px] text-fg outline-none transition-colors placeholder:text-fg-subtle focus:border-primary/40 focus:bg-surface focus:ring-4 focus:ring-[var(--ring)]/12"
+            className="h-9 w-full rounded-xl bg-surface-2 pl-8.5 pr-inset-lg text-[12.5px] text-fg outline-none transition-shadow placeholder:text-fg-subtle focus:ring-4 focus:ring-[var(--ring)]/12"
             style={{ paddingLeft: 32 }}
           />
         </div>
@@ -97,15 +97,15 @@ export function LeftDrawer() {
               <div
                 key={character.id}
                 className={cn(
-                  "group flex cursor-pointer items-center gap-2.5 rounded-xl px-2 py-2 transition-colors",
+                  "group flex cursor-pointer items-center gap-2.5 rounded-xl px-inset-lg py-2.5 transition-colors",
                   active ? "bg-primary-container" : "hover:bg-surface-2",
                 )}
                 onClick={() => void selectCharacter(character.id)}
               >
                 <span
                   className={cn(
-                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border text-[17px]",
-                    active ? "border-primary/25 bg-surface" : "border-line bg-surface",
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] text-[17px]",
+                    active ? "bg-surface" : "bg-surface-2",
                   )}
                 >
                   {character.avatar}
@@ -164,7 +164,7 @@ export function LeftDrawer() {
                   close();
                 }}
                 className={cn(
-                  "group flex cursor-pointer items-start gap-2 rounded-xl px-2.5 py-2 transition-colors",
+                  "group flex cursor-pointer items-start gap-2 rounded-xl px-inset-lg py-2.5 transition-colors",
                   active ? "bg-surface-2" : "hover:bg-surface-2",
                 )}
               >
@@ -186,7 +186,7 @@ export function LeftDrawer() {
                         }
                         if (e.key === "Escape") setRenaming(null);
                       }}
-                      className="w-full rounded-md border border-primary/40 bg-surface px-1.5 py-0.5 text-[12.5px] outline-none"
+                      className="w-full rounded-md bg-surface-2 px-inset-sm py-1 text-[12.5px] outline-none focus:ring-2 focus:ring-[var(--ring)]/20"
                     />
                   ) : (
                     <p
@@ -262,9 +262,9 @@ export function LeftDrawer() {
         <Button
           variant="soft"
           size="sm"
-          className="w-full"
+          className="relative w-full justify-center"
           onClick={() => openDrawer("character")}
-          leading={<Pencil size={13} />}
+          leading={<Pencil size={13} className="absolute left-4" />}
         >
           编辑当前角色卡
         </Button>

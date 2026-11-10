@@ -270,11 +270,11 @@ export function WorkflowEditor({
 
         <div className="ml-3 flex min-w-0 flex-1 items-center gap-1.5">
           {errors.length === 0 ? (
-            <span className="hidden items-center gap-1 rounded-full bg-success/10 px-2 py-1 text-[10.5px] text-success sm:flex">
+            <span className="hidden items-center gap-1 rounded-full bg-success/10 px-inset-pill py-1.5 text-[10.5px] text-success sm:flex">
               <Check size={11} /> 结构完整
             </span>
           ) : (
-            <span className="hidden items-center gap-1 rounded-full bg-amber-500/10 px-2 py-1 text-[10.5px] text-amber-700 sm:flex">
+            <span className="hidden items-center gap-1 rounded-full bg-warning/10 px-inset-pill py-1.5 text-[10.5px] text-warning sm:flex">
               {errors[0]}
             </span>
           )}
@@ -400,12 +400,11 @@ export function WorkflowEditor({
                       setSelected(node.id);
                       e.stopPropagation();
                     }}
-                    className="absolute rounded-2xl border bg-surface shadow-card transition-shadow"
+                    className="absolute rounded-2xl bg-surface shadow-card transition-shadow"
                     style={{
                       left: node.x,
                       top: node.y,
                       width: NODE_W,
-                      borderColor: selected === node.id ? "var(--primary)" : "var(--border)",
                       boxShadow:
                         selected === node.id
                           ? "0 0 0 3px color-mix(in oklab, var(--primary) 22%, transparent), var(--shadow-md)"
@@ -413,7 +412,7 @@ export function WorkflowEditor({
                     }}
                   >
                     <div
-                      className="flex cursor-grab items-center gap-2 rounded-t-2xl border-b border-line px-2.5 py-2 active:cursor-grabbing"
+                      className="flex cursor-grab items-center gap-2 rounded-t-2xl border-b border-line px-inset-sm py-2.5 active:cursor-grabbing"
                       onPointerDown={(e) => {
                         if ((e.target as HTMLElement).closest("[data-port]")) return;
                         e.stopPropagation();
@@ -479,7 +478,7 @@ export function WorkflowEditor({
           </div>
 
           {/* 节点面板 */}
-          <div className="absolute left-3 top-3 z-10 w-[148px] rounded-2xl border border-line bg-surface/95 p-2 shadow-card backdrop-blur">
+          <div className="absolute left-3 top-3 z-10 w-[148px] rounded-2xl bg-surface/95 p-inset-tight shadow-card backdrop-blur dark:bg-surface-2/95">
             <p className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-fg-subtle">
               添加节点
             </p>
@@ -498,7 +497,7 @@ export function WorkflowEditor({
                       setGraph((g) => ({ ...g, nodes: [...g.nodes, node] }));
                       setSelected(node.id);
                     }}
-                    className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+                    className="flex w-full items-center gap-1.5 rounded-lg px-inset-sm py-2 text-left text-[11px] text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
                   >
                     <span style={{ color: meta.color }}>{KIND_ICON[kind]}</span>
                     {meta.label}
@@ -510,13 +509,13 @@ export function WorkflowEditor({
           </div>
 
           {/* 缩放 */}
-          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-0.5 rounded-xl border border-line bg-surface/95 p-1 shadow-card backdrop-blur">
+          <div className="absolute bottom-3 left-3 z-10 flex items-center gap-0.5 rounded-xl bg-surface/95 p-inset-tight shadow-card backdrop-blur dark:bg-surface-2/95">
             <IconButton label="缩小" onClick={() => setView((v) => ({ ...v, scale: Math.max(0.45, v.scale - 0.1) }))}>
               <ZoomOut size={14} />
             </IconButton>
             <button
               onClick={() => setView({ x: 40, y: 40, scale: 1 })}
-              className="min-w-[46px] rounded-md px-1 py-1 text-[10.5px] tabular-nums text-fg-muted hover:bg-surface-2"
+              className="min-w-[46px] rounded-md px-inset-tight py-1.5 text-[10.5px] tabular-nums text-fg-muted hover:bg-surface-2"
             >
               {Math.round(view.scale * 100)}%
             </button>
@@ -533,8 +532,8 @@ export function WorkflowEditor({
 
           {/* 运行日志 */}
           {(runLogs.length > 0 || runResult || running) && (
-            <div className="absolute bottom-3 left-1/2 z-10 w-[min(520px,calc(100%-24px))] -translate-x-1/2 overflow-hidden rounded-2xl border border-line bg-surface/95 shadow-float backdrop-blur">
-              <div className="flex items-center justify-between border-b border-line px-3 py-1.5">
+            <div className="absolute bottom-3 left-1/2 z-10 w-[min(520px,calc(100%-24px))] -translate-x-1/2 overflow-hidden rounded-2xl bg-surface/95 shadow-float backdrop-blur dark:bg-surface-2/95">
+              <div className="flex items-center justify-between border-b border-line px-inset-sm py-2">
                 <span className="flex items-center gap-1.5 text-[11px] font-medium text-fg-muted">
                   <Terminal size={12} /> 试运行
                 </span>
@@ -582,11 +581,11 @@ export function WorkflowEditor({
                 <input
                   value={selectedNode.title}
                   onChange={(e) => updateNode(selectedNode.id, { title: e.target.value })}
-                  className="h-8 w-full rounded-lg border border-line bg-surface px-2 text-[12px] outline-none focus:border-primary/40"
+                  className="h-8 w-full rounded-lg bg-surface-2 px-inset-md text-[12px] outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                 />
               </label>
 
-              <div className="rounded-xl bg-surface-2/60 px-2.5 py-2 text-[11px] leading-relaxed text-fg-subtle">
+              <div className="rounded-xl bg-surface-2/60 px-inset-lg py-2.5 text-[11px] leading-relaxed text-fg-subtle">
                 {NODE_META[selectedNode.kind].hint}
                 {selectedNode.kind === "template" && (
                   <span className="mt-1 block font-mono text-[10px]">
@@ -602,7 +601,7 @@ export function WorkflowEditor({
                     <textarea
                       value={(selectedNode.config as TemplateNodeConfig).text ?? ""}
                       onChange={(e) => patchConfig(selectedNode.id, { text: e.target.value })}
-                      className="min-h-[110px] w-full resize-y rounded-lg border border-line bg-surface px-2 py-1.5 font-mono text-[11.5px] leading-relaxed outline-none focus:border-primary/40"
+                      className="min-h-[110px] w-full resize-y rounded-lg bg-surface-2 px-inset-md py-2.5 font-mono text-[11.5px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                     />
                   </label>
                   <label className="block">
@@ -640,7 +639,7 @@ export function WorkflowEditor({
                     value={(selectedNode.config as ScriptNodeConfig).code ?? ""}
                     onChange={(e) => patchConfig(selectedNode.id, { code: e.target.value })}
                     spellCheck={false}
-                    className="min-h-[220px] w-full resize-y rounded-lg border border-line bg-surface px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/40"
+                    className="min-h-[220px] w-full resize-y rounded-lg bg-surface-2 px-inset-md py-2.5 font-mono text-[11px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                   />
                 </label>
               )}
@@ -653,7 +652,7 @@ export function WorkflowEditor({
                     onChange={(e) => patchConfig(selectedNode.id, { params: e.target.value })}
                     spellCheck={false}
                     placeholder='{"temperature": 1.2}'
-                    className="min-h-[110px] w-full resize-y rounded-lg border border-line bg-surface px-2 py-1.5 font-mono text-[11px] leading-relaxed outline-none focus:border-primary/40"
+                    className="min-h-[110px] w-full resize-y rounded-lg bg-surface-2 px-inset-md py-2.5 font-mono text-[11px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
                   />
                   {!(safeJsonParse((selectedNode.config as LlmNodeConfig).params ?? "").ok) && (
                     <span className="mt-1 block text-[10.5px] text-danger">JSON 无效，运行时将报错</span>
@@ -664,7 +663,7 @@ export function WorkflowEditor({
                 </label>
               )}
 
-              <div className="flex items-center justify-between rounded-xl border border-line px-2.5 py-2">
+              <div className="flex items-center justify-between rounded-xl border border-line px-inset-lg py-2.5">
                 <span className="text-[11px] text-fg-muted">节点 ID</span>
                 <span className="max-w-[150px] truncate font-mono text-[10px] text-fg-subtle">{selectedNode.id}</span>
               </div>
@@ -685,7 +684,7 @@ export function WorkflowEditor({
               <textarea
                 value={testInput}
                 onChange={(e) => setTestInput(e.target.value)}
-                className="min-h-[64px] w-full resize-y rounded-lg border border-line bg-surface px-2 py-1.5 text-[11.5px] leading-relaxed outline-none focus:border-primary/40"
+                className="min-h-[64px] w-full resize-y rounded-lg bg-surface-2 px-inset-md py-2.5 text-[11.5px] leading-relaxed outline-none focus:ring-2 focus:ring-[var(--ring)]/15"
               />
             </div>
           </aside>

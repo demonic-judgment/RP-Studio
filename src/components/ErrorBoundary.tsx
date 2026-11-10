@@ -19,7 +19,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
     if (!this.state.error) return this.props.children;
     return (
       <div className="flex h-full items-center justify-center bg-bg px-6">
-        <div className="w-full max-w-[440px] rounded-3xl border border-line bg-surface p-6 text-center shadow-card">
+        <div className="w-full max-w-[440px] rounded-3xl bg-surface p-inset-lg text-center shadow-card">
           <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 text-lg">
             ⚠️
           </div>
@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
           <div className="mt-4 flex gap-2">
             <button
               onClick={() => this.setState({ error: null })}
-              className="h-10 flex-1 rounded-xl border border-line text-[13px] font-medium text-fg transition-colors hover:bg-surface-2"
+              className="h-10 flex-1 rounded-xl bg-surface-2 text-[13px] font-medium text-fg transition-colors hover:bg-surface-3"
             >
               返回界面
             </button>

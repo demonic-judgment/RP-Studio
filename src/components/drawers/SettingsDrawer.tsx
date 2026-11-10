@@ -136,14 +136,14 @@ export function SettingsDrawer() {
                     <button
                       key={preset.id}
                       onClick={() => void setSettings({ accent: preset.id })}
-                      className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left transition-all ${
+                      className={`flex items-center gap-1.5 rounded-xl px-inset-md py-2.5 text-left transition-all ${
                         active
-                          ? "border-primary/50 bg-primary-container/60"
-                          : "border-line bg-surface hover:border-line-strong hover:bg-surface-2"
+                          ? "bg-primary-container"
+                          : "bg-surface-2 hover:bg-surface-3"
                       }`}
                     >
                       <span
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-black/5"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                         style={{ background: preset.hex }}
                       >
                         {active && <Check size={13} className="text-white" />}
@@ -155,21 +155,21 @@ export function SettingsDrawer() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-line bg-surface-2/50 p-3">
+            <div className="rounded-2xl bg-surface-2 p-inset-sm">
               <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
                 预览
               </p>
               <div className="space-y-2">
                 <div className="flex gap-2">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface text-[13px] ring-1 ring-line">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-surface text-[13px]">
                     🎭
                   </span>
-                  <div className="rounded-2xl rounded-tl-md bg-surface px-3 py-2 text-[12.5px] leading-relaxed text-fg shadow-soft">
+                  <div className="rounded-2xl rounded-tl-md bg-surface px-inset-sm py-2.5 text-[12.5px] leading-relaxed text-fg shadow-soft">
                     这是一段角色回复的示例文本，用以确认强调色与排版。
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <div className="rounded-2xl rounded-br-md bg-[var(--bubble-user)] px-3 py-2 text-[12.5px] text-fg">
+                  <div className="rounded-2xl rounded-br-md bg-[var(--bubble-user)] px-inset-sm py-2.5 text-[12.5px] text-fg shadow-bubble">
                     明白了，继续。
                   </div>
                 </div>
@@ -188,7 +188,7 @@ export function SettingsDrawer() {
 
         {tab === "model" && (
           <div className="space-y-5">
-            <div className="rounded-2xl border border-line bg-surface-2/50 p-3 text-[11.5px] leading-relaxed text-fg-muted">
+            <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
               使用 OpenAI 兼容接口。<span className="text-fg">Base URL、Key、模型名分开填写</span>，
               其余参数（temperature、top_p、max_tokens、response_format…）在下方以 JSON 透传，不做任何裁剪。
             </div>
@@ -279,10 +279,10 @@ export function SettingsDrawer() {
 
             {testResult && (
               <div
-                className={`rounded-xl border px-3 py-2 text-[12px] leading-relaxed ${
+                className={`rounded-xl px-inset-lg py-2.5 text-[12px] leading-relaxed ${
                   testResult.ok
-                    ? "border-success/30 bg-success/5 text-fg-muted"
-                    : "border-danger/30 bg-danger/5 text-fg-muted"
+                    ? "bg-success/10 text-fg-muted"
+                    : "bg-danger/10 text-fg-muted"
                 }`}
               >
                 <p className={testResult.ok ? "font-medium text-success" : "font-medium text-danger"}>
@@ -292,7 +292,7 @@ export function SettingsDrawer() {
               </div>
             )}
 
-            <div className="space-y-3 rounded-2xl border border-line bg-surface-2/40 p-3.5">
+            <div className="space-y-3 rounded-2xl bg-surface-2 p-inset-sm">
               <Row label="流式输出" hint="逐字返回，实时渲染">
                 <Switch label="流式输出" checked={settings.stream} onChange={(stream) => void setSettings({ stream })} />
               </Row>
@@ -354,7 +354,7 @@ export function SettingsDrawer() {
               </Field>
             )}
 
-            <div className="space-y-2 rounded-2xl border border-line p-3.5">
+            <div className="space-y-2 rounded-2xl border border-line p-inset-sm">
               <p className="text-[12.5px] font-medium text-fg">备份与恢复</p>
               <p className="text-[11.5px] leading-relaxed text-fg-subtle">
                 导出包含全部角色卡、会话、消息与设置，可迁移到另一台设备。
@@ -400,7 +400,7 @@ export function SettingsDrawer() {
               </div>
             </div>
 
-            <div className="space-y-2 rounded-2xl border border-danger/25 bg-danger/[0.04] p-3.5">
+            <div className="space-y-2 rounded-2xl bg-danger/[0.08] p-inset-sm">
               <p className="text-[12.5px] font-medium text-danger">危险区域</p>
               <p className="text-[11.5px] leading-relaxed text-fg-muted">
                 清空所有数据并恢复到初始示例角色，操作不可撤销。
@@ -464,7 +464,7 @@ function Row({
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-line bg-surface-2/40 px-3 py-2.5">
+    <div className="rounded-xl bg-surface-2 px-inset-lg py-3">
       <p className="text-[10.5px] uppercase tracking-[0.1em] text-fg-subtle">{label}</p>
       <p className="mt-1 text-lg font-semibold tabular-nums text-fg">{value}</p>
     </div>

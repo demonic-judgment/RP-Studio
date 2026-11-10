@@ -68,6 +68,11 @@ export function Composer({
     onSend();
   };
 
+  // 发送方式直接写在输入区里，打字后自然让位给正文；状态信息与动作各占一行的两端。
+  const sendHint = settings.enterToSend
+    ? "Enter 发送 · Shift+Enter 换行"
+    : "⌘/Ctrl+Enter 发送";
+
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
       {/* 这里不再铺不透明渐变色带：消息列表改用 mask 自身淡出，
@@ -76,27 +81,34 @@ export function Composer({
         ref={shellRef}
         className="pointer-events-auto mx-auto w-full max-w-[820px] px-3 pb-4 sm:px-5 sm:pb-5"
       >
-        <div className="rounded-[26px] border border-line-strong/70 bg-surface/90 p-2 shadow-float backdrop-blur-xl transition-shadow focus-within:border-primary/30 focus-within:shadow-[0_28px_70px_-24px_rgba(28,25,20,0.38)]">
-          {character.quickPhrases.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto px-1 pb-2 pt-1 no-scrollbar">
-              <span className="flex shrink-0 items-center gap-1 pl-1 pr-0.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
-                <Sparkles size={11} />
-                快捷语
-              </span>
-              {character.quickPhrases.map((phrase) => (
-                <button
-                  key={phrase.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(value.trim() ? `${value.trim()}\n${phrase.content}` : phrase.content);
-                    textareaRef.current?.focus();
-                  }}
-                  className="shrink-0 rounded-full border border-line bg-surface-2/70 px-2.5 py-1 text-[11.5px] text-fg-muted transition-colors hover:border-line-strong hover:bg-surface-2 hover:text-fg"
-                  title={phrase.content}
-                >
-                  {phrase.label}
-                </button>
-              ))}
+        <div className="rounded-[26px] bg-surface/90 px-inset-md py-inset-tight shadow-float dark:bg-surface-2/95 backdrop-blur-xl transition-shadow focus-within:shadow-focus">
+          {(character.quickPhrases.length > 0 || tokens > 0) && (
+            <div className="flex items-center gap-2 px-1 pb-2 pt-1">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
+                <span className="flex shrink-0 items-center gap-1 pl-1 pr-0.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
+                  <Sparkles size={11} />
+                  快捷语
+                </span>
+                {character.quickPhrases.map((phrase) => (
+                  <button
+                    key={phrase.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(value.trim() ? `${value.trim()}\n${phrase.content}` : phrase.content);
+                      textareaRef.current?.focus();
+                    }}
+                    className="shrink-0 rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11.5px] text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg"
+                    title={phrase.content}
+                  >
+                    {phrase.label}
+                  </button>
+                ))}
+              </div>
+              {tokens > 0 && (
+                <span className="shrink-0 whitespace-nowrap pr-0.5 text-[10.5px] tabular-nums text-fg-subtle">
+                  上下文 ≈ {tokens} tokens
+                </span>
+              )}
             </div>
           )}
 
@@ -106,6 +118,7 @@ export function Composer({
             </div>
             <textarea
               ref={textareaRef}
+              aria-label="消息输入"
               value={value}
               rows={1}
               onChange={(e) => onChange(e.target.value)}
@@ -120,46 +133,36 @@ export function Composer({
                   send();
                 }
               }}
-              placeholder={`给 ${character.name} 发消息…`}
+              placeholder={sendHint}
               className="max-h-[220px] min-h-[36px] flex-1 resize-none bg-transparent py-2 text-[14.5px] leading-relaxed text-fg outline-none placeholder:text-fg-subtle"
             />
-
-            <div className="flex shrink-0 items-center gap-1.5 pb-0.5">
-              {streaming ? (
-                <motion.button
-                  initial={{ scale: 0.9, opacity: 0.6 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  type="button"
-                  onClick={onStop}
-                  aria-label="停止生成"
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-85"
-                >
-                  <Square size={13} fill="currentColor" />
-                </motion.button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={send}
-                  disabled={!value.trim()}
-                  aria-label="发送"
-                  className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-full transition-all duration-200",
-                    value.trim()
-                      ? "bg-primary text-on-primary shadow-soft hover:bg-primary-hover active:scale-95"
-                      : "bg-surface-3 text-fg-subtle",
-                  )}
-                >
-                  <ArrowUp size={17} strokeWidth={2.4} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between px-2 pb-0.5 pt-1 text-[10.5px] text-fg-subtle">
-            <span className="truncate">
-              {settings.enterToSend ? "Enter 发送 · Shift+Enter 换行" : "⌘/Ctrl+Enter 发送"}
-            </span>
-            {tokens > 0 && <span className="shrink-0 tabular-nums">上下文 ≈ {tokens} tokens</span>}
+            {streaming ? (
+              <motion.button
+                initial={{ scale: 0.9, opacity: 0.6 }}
+                animate={{ scale: 1, opacity: 1 }}
+                type="button"
+                onClick={onStop}
+                aria-label="停止生成"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-fg text-bg transition hover:opacity-85"
+              >
+                <Square size={13} fill="currentColor" />
+              </motion.button>
+            ) : (
+              <button
+                type="button"
+                onClick={send}
+                disabled={!value.trim()}
+                aria-label="发送"
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-200",
+                  value.trim()
+                    ? "bg-primary text-on-primary shadow-soft hover:bg-primary-hover active:scale-95"
+                    : "bg-surface-3 text-fg-subtle",
+                )}
+              >
+                <ArrowUp size={17} strokeWidth={2.4} />
+              </button>
+            )}
           </div>
         </div>
       </div>

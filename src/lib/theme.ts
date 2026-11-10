@@ -35,7 +35,7 @@ export function applyTheme(theme: ThemeMode, accentId: string) {
   localStorage.setItem(THEME_KEY, theme);
   localStorage.setItem(ACCENT_KEY, accentId);
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", dark ? "#0e0e10" : "#f8f7f4");
+  if (meta) meta.setAttribute("content", dark ? "#0d0d0f" : "#f8f7f4");
 }
 
 export function watchSystemTheme(theme: ThemeMode, accentId: string, onChange: () => void) {
