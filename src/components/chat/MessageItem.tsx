@@ -197,108 +197,108 @@ function MessageItemBase({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-      className="group flex gap-3"
+      className="group"
     >
-      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[16px]">
-        {avatar}
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2">
-          <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
-          {message.status === "stopped" && (
-            <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
-          )}
-          {message.meta.greeting && (
-            <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">
-              开场
-            </span>
-          )}
-          {message.meta.viaWorkflow && (
-            <span className="rounded-full bg-primary-container px-inset-pill py-1 text-[10px] text-on-primary-container">
-              工作流
-            </span>
-          )}
-          {message.meta.edited && <span className="text-[10px] text-fg-subtle">已编辑</span>}
-        </div>
-
-        <MessageActivity
-          message={message}
-          running={Boolean(streaming)}
-          startedAt={live?.startedAt}
-          liveLogs={live?.logs}
-        />
-
-        <StreamingResponse
-          status={isError ? "error" : responseStatus}
-          copyText={message.content}
-          onCopy={handleCopy}
-          onRetry={message.meta.greeting ? undefined : () => onRegenerate(message.id)}
-          labels={RESPONSE_LABELS}
-          contentClassName="text-[14.5px] leading-relaxed text-fg"
-          announce={false}
-          extraActions={
-            <>
-              <IconButton
-                label="创建分支对话"
-                className="h-7 w-7"
-                onClick={() => onBranch(message.id)}
-                disabled={disabled || streaming}
-              >
-                <GitBranch size={13} />
-              </IconButton>
-              <IconButton
-                label="删除"
-                className="h-7 w-7 hover:text-danger"
-                onClick={() => onDelete(message.id)}
-                disabled={disabled}
-              >
-                <Trash2 size={13} />
-              </IconButton>
-              <span className="ml-1 hidden text-[10.5px] tabular-nums text-fg-subtle sm:inline">
-                {message.meta.model ? `${message.meta.model} · ` : ""}
-                {formatTime(message.createdAt)}
-              </span>
-            </>
-          }
-        >
-          {isError ? (
-            <div className="rounded-2xl bg-danger/10 px-inset-sm py-3">
-              <p className="text-[13px] font-medium text-danger">生成失败</p>
-              <p className="mt-1 whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-fg-muted">
-                {message.meta.error || message.content}
-              </p>
-            </div>
-          ) : message.content ? (
-            <Markdown content={revealed} streaming={Boolean(streaming)} />
-          ) : (
-            <TypingDots />
-          )}
-        </StreamingResponse>
-
-        {variants.length > 1 && (
-          <div className="mt-1 flex items-center gap-0.5 text-[11px] text-fg-subtle">
-            <IconButton
-              label="上一版回答"
-              className="h-6 w-6"
-              onClick={() => onSwitchVariant(message.id, variantIndex - 1)}
-              disabled={disabled || variantIndex <= 0}
-            >
-              <ChevronLeft size={12} />
-            </IconButton>
-            <span className="min-w-[38px] text-center tabular-nums">
-              {variantIndex + 1} / {variants.length}
-            </span>
-            <IconButton
-              label="下一版回答"
-              className="h-6 w-6"
-              onClick={() => onSwitchVariant(message.id, variantIndex + 1)}
-              disabled={disabled || variantIndex >= variants.length - 1}
-            >
-              <ChevronRight size={12} />
-            </IconButton>
-          </div>
+      {/* 头像与名字并列一行，正文从容器左缘起排：不再为头像单开一列，
+          回复面就能左右铺满整列宽度（原来是 32px 头像 + 12px 间距的左缩进）。 */}
+      <div className="mb-1 flex items-center gap-2">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
+          {avatar}
+        </span>
+        <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
+        {message.status === "stopped" && (
+          <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
         )}
+        {message.meta.greeting && (
+          <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">
+            开场
+          </span>
+        )}
+        {message.meta.viaWorkflow && (
+          <span className="rounded-full bg-primary-container px-inset-pill py-1 text-[10px] text-on-primary-container">
+            工作流
+          </span>
+        )}
+        {message.meta.edited && <span className="text-[10px] text-fg-subtle">已编辑</span>}
       </div>
+
+      <MessageActivity
+        message={message}
+        running={Boolean(streaming)}
+        startedAt={live?.startedAt}
+        liveLogs={live?.logs}
+      />
+
+      <StreamingResponse
+        status={isError ? "error" : responseStatus}
+        copyText={message.content}
+        onCopy={handleCopy}
+        onRetry={message.meta.greeting ? undefined : () => onRegenerate(message.id)}
+        labels={RESPONSE_LABELS}
+        contentClassName="text-[14.5px] leading-relaxed text-fg"
+        announce={false}
+        extraActions={
+          <>
+            <IconButton
+              label="创建分支对话"
+              className="h-7 w-7"
+              onClick={() => onBranch(message.id)}
+              disabled={disabled || streaming}
+            >
+              <GitBranch size={13} />
+            </IconButton>
+            <IconButton
+              label="删除"
+              className="h-7 w-7 hover:text-danger"
+              onClick={() => onDelete(message.id)}
+              disabled={disabled}
+            >
+              <Trash2 size={13} />
+            </IconButton>
+            <span className="ml-1 hidden text-[10.5px] tabular-nums text-fg-subtle sm:inline">
+              {message.meta.model ? `${message.meta.model} · ` : ""}
+              {formatTime(message.createdAt)}
+            </span>
+          </>
+        }
+      >
+        {isError ? (
+          <div className="rounded-2xl bg-danger/10 px-inset-sm py-3">
+            <p className="text-[13px] font-medium text-danger">生成失败</p>
+            <p className="mt-1 whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-fg-muted">
+              {message.meta.error || message.content}
+            </p>
+          </div>
+        ) : message.content ? (
+          <Markdown content={revealed} streaming={Boolean(streaming)} />
+        ) : (
+          <TypingDots />
+        )}
+      </StreamingResponse>
+
+      {variants.length > 1 && (
+        <div className="mt-1 flex items-center gap-0.5 text-[11px] text-fg-subtle">
+          <IconButton
+            label="上一版回答"
+            className="h-6 w-6"
+            onClick={() => onSwitchVariant(message.id, variantIndex - 1)}
+            disabled={disabled || variantIndex <= 0}
+          >
+            <ChevronLeft size={12} />
+          </IconButton>
+          <span className="min-w-[38px] text-center tabular-nums">
+            {variantIndex + 1} / {variants.length}
+          </span>
+          <IconButton
+            label="下一版回答"
+            className="h-6 w-6"
+            onClick={() => onSwitchVariant(message.id, variantIndex + 1)}
+            disabled={disabled || variantIndex >= variants.length - 1}
+          >
+            <ChevronRight size={12} />
+          </IconButton>
+        </div>
+      )}
     </motion.div>
   );
 }
