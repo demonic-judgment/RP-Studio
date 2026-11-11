@@ -422,6 +422,24 @@ pnpm deploy      # vite build && wrangler deploy（先 wrangler login）
 
 `wrangler.jsonc` 使用 `assets.directory: ./dist` + `not_found_handling: "single-page-application"`，`run_worker_first: false`，无需任何服务端代码。也可直接托管到 Pages / Vercel / Netlify —— PGlite 只在浏览器运行。首次打开需要下载 PGlite 的 WASM（约 3 MB，gzip 后），之后由浏览器缓存。
 
+### Cloudflare Workers 构建配置
+
+在 Workers & Pages → 该项目 → Settings → Build 里必须**同时**配置两条命令：
+
+| 项 | 值 |
+| --- | --- |
+| Build command | `pnpm build` |
+| Deploy command | `npx wrangler deploy` |
+
+只配 Deploy command 是不够的：构建镜像装完依赖会直接跑 `wrangler deploy`，此时 `dist/` 还不存在，日志里表现为
+
+```text
+✘ [ERROR] The directory specified by the "assets.directory" field in your configuration file does not exist:
+  /opt/buildhome/repo/dist
+```
+
+正确的日志顺序是先出现 `Executing user build command: pnpm build`（`vite build` 的产物清单），再出现 `Executing user deploy command: npx wrangler deploy`。若只想在后台填一条命令，Deploy command 可改用 `pnpm deploy`（脚本内部已含 `vite build`），但分两条配更容易从日志里分清是哪一步炸的。
+
 ### 追加 shadcn/ui 组件
 
 `shadcn` CLI 已作为 devDependency 安装，`components.json` 指向 Tailwind v4 与 `src/index.css`：
