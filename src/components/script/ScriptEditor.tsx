@@ -28,6 +28,7 @@ export function ScriptEditor({
   character,
   messages,
   userName,
+  imageEnabled,
   timeoutMs,
   minHeight = 220,
 }: {
@@ -36,6 +37,7 @@ export function ScriptEditor({
   character: Character;
   messages: Message[];
   userName: string;
+  imageEnabled?: boolean;
   timeoutMs: number;
   minHeight?: number;
 }) {
@@ -48,7 +50,13 @@ export function ScriptEditor({
     setRunning(true);
     setLogs([]);
     setResult(null);
-    const assembled = assembleContext({ character, history: messages, input: testInput, userName });
+    const assembled = assembleContext({
+      character,
+      history: messages,
+      input: testInput,
+      userName,
+      imageEnabled,
+    });
     const output = await runScript(
       code,
       {

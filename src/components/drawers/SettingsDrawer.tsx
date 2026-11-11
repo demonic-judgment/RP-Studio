@@ -3,6 +3,7 @@ import {
   Check,
   Database,
   Download,
+  ImageIcon,
   Palette,
   SlidersHorizontal,
   Trash2,
@@ -18,9 +19,10 @@ import { Tabs, Segmented } from "../ui/Tabs";
 import { Button } from "../ui/Button";
 import { Field, Input, Switch, Slider } from "../ui/Form";
 import { ModelSettings } from "./ModelSettings";
+import { ImageSettings } from "./ImageSettings";
 import { BackgroundSettings } from "./BackgroundSettings";
 
-type TabId = "theme" | "model" | "data";
+type TabId = "theme" | "model" | "image" | "data";
 
 export function SettingsDrawer() {
   const open = useStore((s) => s.drawer === "settings");
@@ -78,6 +80,7 @@ export function SettingsDrawer() {
           tabs={[
             { id: "theme", label: "主题", icon: <Palette size={14} /> },
             { id: "model", label: "模型", icon: <SlidersHorizontal size={14} /> },
+            { id: "image", label: "生图", icon: <ImageIcon size={14} /> },
             { id: "data", label: "数据", icon: <Database size={14} /> },
           ]}
         />
@@ -192,6 +195,8 @@ export function SettingsDrawer() {
             </div>
           </div>
         )}
+
+        {tab === "image" && <ImageSettings />}
 
         {tab === "data" && (
           <div className="space-y-5">

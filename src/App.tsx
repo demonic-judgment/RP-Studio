@@ -4,6 +4,7 @@ import { applyTheme, watchSystemTheme } from "./lib/theme";
 import { cn } from "./lib/utils";
 import { Backdrop } from "./components/home/Backdrop";
 import { ChatView } from "./components/chat/ChatView";
+import { ImageStage } from "./components/image/ImageStage";
 import { LeftDrawer } from "./components/drawers/LeftDrawer";
 import { SettingsDrawer } from "./components/drawers/SettingsDrawer";
 import { CharacterDrawer } from "./components/drawers/CharacterDrawer";
@@ -89,6 +90,9 @@ export default function App() {
       >
         <ChatView />
       </div>
+
+      {/* 悬浮画面：开关打开时才出现，可拖拽 / 缩放，压在抽屉之下 */}
+      <ImageStage />
 
       <LeftDrawer />
       <SettingsDrawer />

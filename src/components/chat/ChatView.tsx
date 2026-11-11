@@ -19,6 +19,8 @@ export function ChatView() {
   const createCharacter = useStore((s) => s.createCharacter);
   const send = useStore((s) => s.send);
   const stop = useStore((s) => s.stop);
+  const imageEnabled = useStore((s) => s.settings.imageEnabled);
+  const setImageEnabled = useStore((s) => s.setImageEnabled);
 
   const [draft, setDraft] = useState("");
   const [composerHeight, setComposerHeight] = useState(140);
@@ -29,6 +31,10 @@ export function ChatView() {
   const handleOpenLeft = useCallback(() => openDrawer("left"), [openDrawer]);
   const handleOpenSettings = useCallback(() => openDrawer("settings"), [openDrawer]);
   const handleNewSession = useCallback(() => void newSession(), [newSession]);
+  const handleToggleImage = useCallback(
+    () => void setImageEnabled(!imageEnabled),
+    [imageEnabled, setImageEnabled],
+  );
 
   const character = characters.find((c) => c.id === activeCharacterId) ?? null;
   const session = sessions.find((s) => s.id === activeSessionId) ?? null;
@@ -59,6 +65,8 @@ export function ChatView() {
       <ChatHeader
         character={character}
         session={session}
+        imageEnabled={imageEnabled}
+        onToggleImage={handleToggleImage}
         onOpenLeft={handleOpenLeft}
         onOpenSettings={handleOpenSettings}
         onNewSession={handleNewSession}

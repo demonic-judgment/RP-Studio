@@ -203,7 +203,13 @@ export function WorkflowEditor({
     setRunning(true);
     setRunLogs([]);
     setRunResult(null);
-    const assembled = assembleContext({ character, history: messages, input: testInput, userName });
+    const assembled = assembleContext({
+      character,
+      history: messages,
+      input: testInput,
+      userName,
+      imageEnabled: settings.imageEnabled,
+    });
     const model = resolveModelConfig(settings);
     const result = await runWorkflow({
       workflow: graph,

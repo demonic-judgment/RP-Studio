@@ -69,12 +69,13 @@ export function Composer({
         history: messages,
         input: deferredValue,
         userName: settings.userName,
+        imageEnabled: settings.imageEnabled,
       });
       return assembled.tokens;
     } catch {
       return estimateTokens(deferredValue);
     }
-  }, [character, messages, settings.showTokenEstimate, settings.userName, deferredValue]);
+  }, [character, messages, settings.showTokenEstimate, settings.userName, settings.imageEnabled, deferredValue]);
 
   const insertPhrase = (content: string) => {
     onChange(value.trim() ? `${value.trim()}\n${content}` : content);

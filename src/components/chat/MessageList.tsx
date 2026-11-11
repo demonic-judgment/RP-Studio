@@ -103,6 +103,7 @@ export const MessageList = memo(function MessageList({
         >
           <div
             ref={contentRef}
+            data-chat-thread
             className="mx-auto flex w-full max-w-[760px] flex-col gap-5"
           >
             {messages.length === 0 && !streaming ? (

@@ -7,6 +7,7 @@ import {
   Eye,
   GripVertical,
   History,
+  Image as ImageIcon,
   MessageSquare,
   Plus,
   Sparkles,
@@ -14,7 +15,14 @@ import {
   Type,
 } from "lucide-react";
 import type { Character, ContextBlock, Message, Role } from "../../lib/types";
-import { assembleContext, blockKindMeta, describeHistoryBlock, newBlockId } from "../../lib/context";
+import {
+  DEFAULT_IMAGE_DIRECTIVE,
+  assembleContext,
+  blockKindMeta,
+  defaultImageDirectiveBlock,
+  describeHistoryBlock,
+  newBlockId,
+} from "../../lib/context";
 import { cn } from "../../lib/utils";
 import { Button, IconButton } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -27,12 +35,15 @@ export function ContextEditor({
   onChange,
   history,
   userName,
+  imageEnabled,
 }: {
   character: Character;
   blocks: ContextBlock[];
   onChange: (blocks: ContextBlock[]) => void;
   history: Message[];
   userName: string;
+  /** 图生图开关：关着时「生图 JSON 预设」不显示、也不参与装配 */
+  imageEnabled: boolean;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -59,10 +70,13 @@ export function ContextEditor({
     else if (kind === "custom")
       block = { id: newBlockId(), kind, enabled: true, role: "system", content: "" };
     else if (kind === "system") block = { id: newBlockId(), kind, enabled: true };
+    else if (kind === "image") block = defaultImageDirectiveBlock();
     else block = { id: newBlockId(), kind, enabled: true };
     onChange([...blocks, block]);
     setExpanded(block.id);
   };
+
+  const hasImageBlock = blocks.some((block) => block.kind === "image");
 
   const preview = useMemo(
     () =>
@@ -71,8 +85,9 @@ export function ContextEditor({
         history,
         input: "（这里预览当前用户输入）",
         userName,
+        imageEnabled,
       }),
-    [blocks, character, history, userName],
+    [blocks, character, history, userName, imageEnabled],
   );
 
   return (
@@ -92,6 +107,8 @@ export function ContextEditor({
 
       <div className="space-y-2">
         {blocks.map((block, index) => {
+          // 开关关着时不显示这条预设，但数组里保留，重新打开即恢复
+          if (block.kind === "image" && !imageEnabled) return null;
           const meta = blockKindMeta(block.kind);
           const isOpen = expanded === block.id;
           const icon =
@@ -101,6 +118,8 @@ export function ContextEditor({
               <Type size={13} />
             ) : block.kind === "user" ? (
               <MessageSquare size={13} />
+            ) : block.kind === "image" ? (
+              <ImageIcon size={13} />
             ) : (
               <Sparkles size={13} />
             );
@@ -165,7 +184,9 @@ export function ContextEditor({
                           ? `${block.role}：${block.content || "空内容"}`
                           : block.kind === "system"
                             ? character.systemPrompt || "尚未填写系统提示"
-                            : "当前输入会插入到这里"}
+                            : block.kind === "image"
+                              ? block.content.split("\n")[0] || "未填写预设"
+                              : "当前输入会插入到这里"}
                     </span>
                     <ChevronDown
                       size={13}
@@ -298,6 +319,30 @@ export function ContextEditor({
                         </>
                       )}
 
+                      {block.kind === "image" && (
+                        <>
+                          <textarea
+                            value={block.content}
+                            onChange={(e) => patch(block.id, { content: e.target.value })}
+                            placeholder="要求模型在回复末尾返回生图提示词 JSON 的 system 指令"
+                            className="min-h-[150px] w-full resize-y rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[12px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--ring)]/15"
+                          />
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-[11px] leading-relaxed text-fg-subtle">
+                              只在顶栏「图生图」开关打开时进入上下文，按 system 消息发送。
+                              支持 {"{{char}}"} {"{{user}}"}；这段 JSON 不会显示在气泡里。
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => patch(block.id, { content: DEFAULT_IMAGE_DIRECTIVE })}
+                              className="shrink-0 text-[11px] text-fg-subtle transition-colors hover:text-primary"
+                            >
+                              恢复默认
+                            </button>
+                          </div>
+                        </>
+                      )}
+
                       {block.kind === "user" && (
                         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
                           当前用户输入的占位块。拖动它决定输入在消息栈中的位置；缺失时会自动追加到末尾。
@@ -330,6 +375,7 @@ export function ContextEditor({
             { kind: "history", label: "历史对话" },
             { kind: "custom", label: "自定义提示词" },
             { kind: "user", label: "用户回复" },
+            ...(imageEnabled && !hasImageBlock ? [{ kind: "image" as const, label: "生图 JSON 预设" }] : []),
           ] as const
         ).map((item) => (
           <button

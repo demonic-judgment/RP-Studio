@@ -1,18 +1,24 @@
 import { memo } from "react";
-import { Plus, Settings2 } from "lucide-react";
+import { ImageIcon, Plus, Settings2 } from "lucide-react";
 import type { Character, Session } from "../../lib/types";
+import { cn } from "../../lib/utils";
 import { IconButton } from "../ui/Button";
 import { Pill } from "../ui/Tabs";
 
 export const ChatHeader = memo(function ChatHeader({
   character,
   session,
+  imageEnabled,
+  onToggleImage,
   onOpenLeft,
   onOpenSettings,
   onNewSession,
 }: {
   character: Character;
   session: Session | null;
+  /** 图生图开关：开启后主页出现悬浮画面组件 */
+  imageEnabled: boolean;
+  onToggleImage: () => void;
   onOpenLeft: () => void;
   onOpenSettings: () => void;
   onNewSession: () => void;
@@ -61,7 +67,18 @@ export const ChatHeader = memo(function ChatHeader({
         </span>
       </button>
 
-      <div className="flex flex-1 items-center justify-end">
+      <div className="flex flex-1 items-center justify-end gap-1">
+        <IconButton
+          label={imageEnabled ? "关闭图生图" : "开启图生图"}
+          onClick={onToggleImage}
+          className={cn(
+            "h-9 w-9",
+            imageEnabled &&
+              "bg-primary-container text-on-primary-container hover:bg-primary-container/70 hover:text-on-primary-container",
+          )}
+        >
+          <ImageIcon size={17} />
+        </IconButton>
         <IconButton label="设置" onClick={onOpenSettings} className="h-9 w-9">
           <Settings2 size={17} />
         </IconButton>

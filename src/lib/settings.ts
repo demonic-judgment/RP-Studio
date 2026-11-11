@@ -1,5 +1,15 @@
-import type { AppSettings, BackgroundConfig, ModelConfig, ModelProfile } from "./types";
+import type {
+  AppSettings,
+  BackgroundConfig,
+  ImageModelMode,
+  ImageProfile,
+  ImagePromptBlock,
+  ImageWidgetGeometry,
+  ModelConfig,
+  ModelProfile,
+} from "./types";
 import { safeJsonParse, uid } from "./utils";
+import { upgradeImageDirective } from "./context";
 
 /**
  * 新建档案时预置的四个参数：model 必填、stream 固定走流式、
@@ -88,6 +98,127 @@ export function createProfile(
   };
 }
 
+/* ------------------------------- 生图档案 -------------------------------- */
+
+const IMAGE_PARAM_DEFAULTS = {
+  model: "gpt-image-1",
+  /** 比例固定 2:3 竖图（gpt-image-1 的 1024x1536），落库前还会再居中裁一次 */
+  size: "1024x1536",
+  n: 1,
+};
+
+export const DEFAULT_IMAGE_PARAMS = JSON.stringify(IMAGE_PARAM_DEFAULTS, null, 2);
+export const DEFAULT_IMAGE_ENDPOINT = "https://api.openai.com/v1/images/edits";
+export const DEFAULT_IMAGE_GENERATE_ENDPOINT = "https://api.openai.com/v1/images/generations";
+
+/** 切换图生图 / 文生图时用的默认端点 */
+export function imageEndpointFor(mode: ImageModelMode): string {
+  return mode === "generate" ? DEFAULT_IMAGE_GENERATE_ENDPOINT : DEFAULT_IMAGE_ENDPOINT;
+}
+
+function normalizeImageParams(raw: string | undefined, legacyModel?: string): string {
+  const parsed = raw?.trim() ? safeJsonParse<Record<string, unknown>>(raw) : null;
+  const value =
+    parsed && parsed.ok && parsed.value && typeof parsed.value === "object" && !Array.isArray(parsed.value)
+      ? { ...(parsed.value as Record<string, unknown>) }
+      : { ...IMAGE_PARAM_DEFAULTS };
+  if (typeof value.model !== "string" || !value.model.trim()) {
+    value.model = legacyModel?.trim() || IMAGE_PARAM_DEFAULTS.model;
+  }
+  // 老档案里存的是 1:1 的旧默认值：比例已改成 2:3，静默升上去，
+  // 免得继续按正方形出图、落库时左右被裁掉一截
+  if (value.size === "1024x1024") value.size = IMAGE_PARAM_DEFAULTS.size;
+  return JSON.stringify(value, null, 2);
+}
+
+/** 新建一条生图档案：默认图生图（multipart），文生图只是退路 */
+export function createImageProfile(
+  patch: Partial<ImageProfile> & { model?: string } = {},
+): ImageProfile {
+  const mode: ImageModelMode = patch.mode === "generate" ? "generate" : "edit";
+  const params = normalizeImageParams(patch.params, patch.model);
+  const endpoint =
+    normalizeEndpoint(patch.endpoint || "") || imageEndpointFor(mode);
+  return {
+    id: patch.id?.trim() || uid("image"),
+    name: patch.name?.trim() || paramModel(params) || "未命名生图模型",
+    endpoint,
+    apiKey: typeof patch.apiKey === "string" ? patch.apiKey : "",
+    params,
+    mode,
+  };
+}
+
+export const DEFAULT_IMAGE_PROFILE: ImageProfile = createImageProfile({
+  id: "image-default",
+  name: "OpenAI 图像",
+});
+
+/**
+ * 生图提示词的默认块：画风构图 → 模型返回的提示词。
+ * 角色外形不再单独成块，需要时用 {{char}} 或直接在硬编码里写。
+ */
+export function defaultImagePromptBlocks(): ImagePromptBlock[] {
+  return [
+    {
+      id: uid("ipb"),
+      kind: "text",
+      enabled: true,
+      label: "画风与构图",
+      content:
+        "同一角色，保持一致的五官、发型与气质；竖构图 2:3，半身，柔和光线，细节丰富，背景干净",
+    },
+    { id: uid("ipb"), kind: "prompt", enabled: true, label: "本轮生图提示词" },
+  ];
+}
+
+function normalizeImageBlocks(raw: unknown): ImagePromptBlock[] {
+  if (!Array.isArray(raw)) return defaultImagePromptBlocks();
+  const blocks: ImagePromptBlock[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const block = item as Partial<ImagePromptBlock> & { kind?: string };
+    const id = typeof block.id === "string" && block.id ? block.id : uid("ipb");
+    const enabled = block.enabled !== false;
+    const label = typeof block.label === "string" ? block.label : undefined;
+    if (block.kind === "text") {
+      // 老设置的默认块写着「正方形 1:1 构图」，比例改成 2:3 后顺手换掉
+      const content =
+        typeof (block as { content?: unknown }).content === "string"
+          ? upgradeImageDirective((block as { content: string }).content)
+          : "";
+      blocks.push({ id, kind: "text", enabled, label, content });
+    } else if (block.kind === "prompt") {
+      blocks.push({ id, kind: "prompt", enabled, label });
+    }
+  }
+  return blocks;
+}
+
+/** 悬浮组件几何：非法值一律当没设置过，交给组件按列宽初始化 */
+function normalizeImageWidget(raw: unknown): ImageWidgetGeometry | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const input = raw as Partial<ImageWidgetGeometry>;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const x = num(input.x);
+  const y = num(input.y);
+  const width = num(input.width);
+  if (x === null || y === null || width === null) return undefined;
+  return {
+    x: Math.max(0, x),
+    y: Math.max(0, y),
+    width: Math.min(2400, Math.max(160, width)),
+  };
+}
+
+export function activeImageProfile(settings: AppSettings): ImageProfile {
+  return (
+    settings.imageModels?.find((m) => m.id === settings.activeImageModelId) ??
+    settings.imageModels?.[0] ??
+    DEFAULT_IMAGE_PROFILE
+  );
+}
+
 export const DEFAULT_PROFILE: ModelProfile = createProfile({
   id: "model-default",
   name: "OpenAI",
@@ -99,6 +230,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   userName: "你",
   models: [{ ...DEFAULT_PROFILE }],
   activeModelId: DEFAULT_PROFILE.id,
+  imageEnabled: false,
+  imageModels: [{ ...DEFAULT_IMAGE_PROFILE }],
+  activeImageModelId: DEFAULT_IMAGE_PROFILE.id,
+  imagePromptBlocks: defaultImagePromptBlocks(),
   scriptTimeoutMs: 5000,
   enterToSend: true,
   showTokenEstimate: true,
@@ -136,11 +271,21 @@ export function normalizeSettings(raw: unknown): AppSettings {
   const legacyModel = input.model;
   const rawModels = input.models;
   const rawActiveId = input.activeModelId;
+  const rawImageModels = input.imageModels;
+  const rawImageActiveId = input.activeImageModelId;
+  const rawImageBlocks = input.imagePromptBlocks;
+  const rawImageWidget = input.imageWidget;
+  const rawImageEnabled = input.imageEnabled;
   const rest: Partial<AppSettings> & { model?: Partial<ModelProfile>; stream?: boolean } = { ...input };
   delete rest.model;
   delete rest.stream;
   delete rest.models;
   delete rest.activeModelId;
+  delete rest.imageModels;
+  delete rest.activeImageModelId;
+  delete rest.imagePromptBlocks;
+  delete rest.imageWidget;
+  delete rest.imageEnabled;
 
   const seen = new Set<string>();
   const models: ModelProfile[] = [];
@@ -170,6 +315,28 @@ export function normalizeSettings(raw: unknown): AppSettings {
       ? rawActiveId
       : models[0].id;
 
+  // 生图档案：和聊天档案同样的规则，至少一条、id 去重
+  const seenImage = new Set<string>();
+  const imageModels: ImageProfile[] = [];
+  if (Array.isArray(rawImageModels)) {
+    for (const candidate of rawImageModels as Partial<ImageProfile>[]) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const profile = createImageProfile(candidate);
+      let id = profile.id;
+      while (seenImage.has(id)) id = uid("image");
+      seenImage.add(id);
+      imageModels.push({ ...profile, id });
+    }
+  }
+  if (imageModels.length === 0) {
+    imageModels.push({ ...DEFAULT_IMAGE_PROFILE });
+    seenImage.add(DEFAULT_IMAGE_PROFILE.id);
+  }
+  const activeImageModelId =
+    typeof rawImageActiveId === "string" && imageModels.some((m) => m.id === rawImageActiveId)
+      ? rawImageActiveId
+      : imageModels[0].id;
+
   // 背景图不算「普通设置」：非法值一律当没设置，别把坏 url 带进渲染层
   const background = normalizeBackground((rest as { background?: unknown }).background);
   delete rest.background;
@@ -180,6 +347,11 @@ export function normalizeSettings(raw: unknown): AppSettings {
     models,
     activeModelId,
     background,
+    imageEnabled: rawImageEnabled === true,
+    imageModels,
+    activeImageModelId,
+    imagePromptBlocks: normalizeImageBlocks(rawImageBlocks),
+    imageWidget: normalizeImageWidget(rawImageWidget),
   };
 }
 

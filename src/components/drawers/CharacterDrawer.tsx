@@ -1,14 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ImageIcon,
   Maximize2,
   Plus,
   Save,
   Trash2,
+  Upload,
   Workflow as WorkflowIcon,
 } from "lucide-react";
 import { useStore } from "../../lib/store";
 import { validateWorkflow } from "../../lib/workflow";
+import { prepareReferenceImage } from "../../lib/image";
 import type { Character, ContextBlock, QuickPhrase } from "../../lib/types";
 import { cn, uid } from "../../lib/utils";
 import { Drawer, DrawerHeader } from "../ui/Drawer";
@@ -23,6 +26,16 @@ type TabId = "basic" | "context" | "workflow" | "script" | "phrases";
 
 const AVATARS = ["🎭", "🌙", "🛰️", "🕯️", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "🗡️", "👑", "🌊"];
 
+/** 三视图槽位：下标即视图，跟 Character.imageSeeds 一一对应 */
+const VIEW_LABELS = ["正面", "侧面", "背面"] as const;
+
+/** 存之前去掉尾部空槽，中间的空槽要留着 —— 视图位置不能挪 */
+function trimSeeds(seeds: string[]): string[] {
+  const next = [...(seeds ?? [])];
+  while (next.length && !next[next.length - 1]) next.pop();
+  return next;
+}
+
 export function CharacterDrawer() {
   const open = useStore((s) => s.drawer === "character");
   const openDrawer = useStore((s) => s.openDrawer);
@@ -33,16 +46,22 @@ export function CharacterDrawer() {
   // 只订用得到的两个字段：订整份 settings 的话，设置抽屉里拖滑杆、改称呼
   // 都会把这个抽屉整棵树重渲染一遍（哪怕它是关着的）。
   const userName = useStore((s) => s.settings.userName);
+  const imageEnabled = useStore((s) => s.settings.imageEnabled);
   const scriptTimeoutMs = useStore((s) => s.settings.scriptTimeoutMs);
   const saveCharacter = useStore((s) => s.saveCharacter);
   const removeCharacter = useStore((s) => s.removeCharacter);
   const newSession = useStore((s) => s.newSession);
+  const toast = useStore((s) => s.toast);
 
   const [draft, setDraft] = useState<Character | null>(character);
   const [tab, setTab] = useState<TabId>("basic");
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingSeed, setUploadingSeed] = useState(false);
+  /** 这次点的是哪个视图槽位；选中的多张从这里往后依次填 */
+  const [seedSlot, setSeedSlot] = useState(0);
+  const seedInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open && character) {
@@ -69,6 +88,37 @@ export function CharacterDrawer() {
 
   const patch = (value: Partial<Character>) => setDraft({ ...draft, ...value });
 
+  const seeds = draft.imageSeeds ?? [];
+
+  /** 一次最多选三张：从点中的槽位往后填，剩下的槽位保持原样 */
+  const handleSeedUpload = async (files: FileList | null, start: number) => {
+    const picked = Array.from(files ?? []).slice(0, VIEW_LABELS.length - start);
+    if (!picked.length) return;
+    setUploadingSeed(true);
+    try {
+      const prepared = await Promise.all(picked.map((file) => prepareReferenceImage(file)));
+      const next = Array.from({ length: VIEW_LABELS.length }, (_, i) => seeds[i] ?? "");
+      prepared.forEach((data, offset) => {
+        next[start + offset] = data;
+      });
+      setDraft({ ...draft, imageSeeds: next });
+    } catch (err) {
+      toast({
+        title: "底图读取失败",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    } finally {
+      setUploadingSeed(false);
+    }
+  };
+
+  const clearSeed = (index: number) => {
+    const next = Array.from({ length: VIEW_LABELS.length }, (_, i) => seeds[i] ?? "");
+    next[index] = "";
+    setDraft({ ...draft, imageSeeds: next });
+  };
+
   const requestClose = () => {
     if (dirty && !window.confirm("角色卡有未保存的修改，确定关闭？")) return;
     openDrawer(null);
@@ -85,6 +135,7 @@ export function CharacterDrawer() {
         tagline: draft.tagline,
         description: draft.description,
         greeting: draft.greeting,
+        imageSeeds: trimSeeds(draft.imageSeeds),
         systemPrompt: draft.systemPrompt,
         contextBlocks: draft.contextBlocks,
         quickPhrases: draft.quickPhrases,
@@ -193,6 +244,73 @@ export function CharacterDrawer() {
                 />
               </Field>
 
+              <Field
+                label="三视图底图"
+                hint="正面 / 侧面 / 背面各一张，至少一张即可。图生图每轮都拿这组参考重新画（多角度对齐发型与服装），画面变化只来自提示词；上传后按长边 1280 等比压缩，不裁切"
+              >
+                <div className="grid grid-cols-3 gap-2">
+                  {VIEW_LABELS.map((label, index) => {
+                    const src = seeds[index] ?? "";
+                    return (
+                      <div key={label} className="space-y-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSeedSlot(index);
+                            seedInputRef.current?.click();
+                          }}
+                          disabled={uploadingSeed}
+                          title={src ? `更换${label}图` : `上传${label}图`}
+                          className={cn(
+                            "group/slot relative flex aspect-[2/3] w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-2 text-fg-subtle transition-colors",
+                            src
+                              ? "border-line hover:border-primary/40"
+                              : "border-dashed border-line/80 hover:border-primary/50 hover:text-fg-muted",
+                          )}
+                        >
+                          {src ? (
+                            <img src={src} alt={`${label}底图`} className="h-full w-full object-cover" />
+                          ) : (
+                            <span className="flex flex-col items-center gap-1">
+                              <ImageIcon size={18} />
+                              <span className="text-[10.5px]">{uploadingSeed ? "处理中…" : "上传"}</span>
+                            </span>
+                          )}
+                          {src && (
+                            <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/slot:opacity-100">
+                              <Upload size={16} className="text-white" />
+                            </span>
+                          )}
+                        </button>
+                        <div className="flex items-center justify-between px-0.5">
+                          <span className="text-[11px] text-fg-subtle">{label}</span>
+                          {src && (
+                            <button
+                              type="button"
+                              onClick={() => clearSeed(index)}
+                              className="text-[11px] text-fg-subtle transition-colors hover:text-danger"
+                            >
+                              移除
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <input
+                  ref={seedInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleSeedUpload(event.target.files, seedSlot);
+                    event.target.value = "";
+                  }}
+                />
+              </Field>
+
               <div className="space-y-2">
                 <Field
                   label="初始消息"
@@ -274,6 +392,7 @@ export function CharacterDrawer() {
               onChange={(contextBlocks: ContextBlock[]) => patch({ contextBlocks })}
               history={messages}
               userName={userName}
+              imageEnabled={imageEnabled}
             />
           )}
 
@@ -365,6 +484,7 @@ export function CharacterDrawer() {
                 character={draft}
                 messages={messages}
                 userName={userName}
+                imageEnabled={imageEnabled}
                 timeoutMs={scriptTimeoutMs}
                 minHeight={260}
               />

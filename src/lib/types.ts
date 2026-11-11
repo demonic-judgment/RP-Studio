@@ -39,7 +39,16 @@ export interface UserBlock extends ContextBlockBase {
   kind: "user";
 }
 
-export type ContextBlock = SystemBlock | HistoryBlock | CustomBlock | UserBlock;
+/**
+ * 图生图 JSON 预设：图生图开关打开时进入上下文的一条 system 指令，
+ * 要求聊天模型在回复末尾附上「生图提示词」JSON。内容可在角色卡里改。
+ */
+export interface ImageDirectiveBlock extends ContextBlockBase {
+  kind: "image";
+  content: string;
+}
+
+export type ContextBlock = SystemBlock | HistoryBlock | CustomBlock | UserBlock | ImageDirectiveBlock;
 export type ContextBlockKind = ContextBlock["kind"];
 
 /* -------------------------------- 角色卡 -------------------------------- */
@@ -77,6 +86,12 @@ export interface Character {
   description: string;
   /** 初始消息：新建会话时作为角色的第一条消息写入 */
   greeting: string;
+  /**
+   * 三视图底图（data URL 或外链）：正面 / 侧面 / 背面各一张，三个槽位与视图一一对应，
+   * 允许中间留空（`""`）。图生图每轮把有图的这几张一起当参考重新画，
+   * 不叠加上一张的结果 —— 画面变化只来自提示词，角色长相不会逐轮漂移。
+   */
+  imageSeeds: string[];
   systemPrompt: string;
   contextBlocks: ContextBlock[];
   quickPhrases: QuickPhrase[];
@@ -86,8 +101,10 @@ export interface Character {
   updatedAt: string;
 }
 
-export type CharacterDraft = Omit<Character, "id" | "createdAt" | "updatedAt"> & {
+export type CharacterDraft = Omit<Character, "id" | "createdAt" | "updatedAt" | "imageSeeds"> & {
   id?: string;
+  /** 新角色可以不配底图，缺省存空数组 */
+  imageSeeds?: string[];
 };
 
 /* -------------------------------- 会话 --------------------------------- */
@@ -110,6 +127,8 @@ export interface MessageVariant {
   createdAt: string;
   /** 这一版生成时的状态，切回来时一并还原（失败的那一版切走再切回不能丢） */
   status?: MessageStatus;
+  /** 这一版正文里摘出来的生图提示词：切版本时画面也要跟着对上 */
+  imagePrompt?: string;
 }
 
 export interface MessageMeta {
@@ -133,6 +152,11 @@ export interface MessageMeta {
    * 这条字段留给接上推理流之后使用：有值时活动流会先走「正在思考」。
    */
   reasoning?: string;
+  /**
+   * 从这条回复里摘出来的生图提示词（回复正文里的那段 JSON 不会进气泡）。
+   * 存 raw 而不是拼装结果：提示词块改了之后重新生图应该跟着新编排走。
+   */
+  imagePrompt?: string;
 }
 
 export interface Message {
@@ -194,6 +218,89 @@ export interface Workflow {
   edges: WorkflowEdge[];
 }
 
+/* -------------------------------- 生图 --------------------------------- */
+
+/**
+ * edit = 图生图：multipart 上传底图打到 /v1/images/edits（默认，推荐）。
+ * generate = 文生图：整体 JSON 打到 /v1/images/generations（没有底图时的退路）。
+ */
+export type ImageModelMode = "edit" | "generate";
+
+export interface ImageProfile {
+  id: string;
+  /** 展示名，仅用于界面区分 */
+  name: string;
+  /** 完整 endpoint，原样请求，不做路径拼接 */
+  endpoint: string;
+  apiKey: string;
+  /**
+   * 请求参数，JSON 文本。multipart 模式逐字段写进表单，JSON 模式整体作为请求体；
+   * 应用只额外注入 prompt（图生图还会注入 image 文件）。
+   */
+  params: string;
+  mode: ImageModelMode;
+}
+
+export interface ImagePromptTextBlock {
+  id: string;
+  kind: "text";
+  enabled: boolean;
+  label?: string;
+  /** 支持 {{char}} / {{user}} / {{prompt}} */
+  content: string;
+}
+
+/** 模型返回的生图提示词插入点；位置决定它在最终提示词里的先后 */
+export interface ImagePromptPromptBlock {
+  id: string;
+  kind: "prompt";
+  enabled: boolean;
+  label?: string;
+}
+
+export type ImagePromptBlock = ImagePromptTextBlock | ImagePromptPromptBlock;
+export type ImagePromptBlockKind = ImagePromptBlock["kind"];
+
+/** 悬浮画面组件的位置与宽度（px，宽度是绝对值，默认按聊天列宽的一半算出来） */
+export interface ImageWidgetGeometry {
+  x: number;
+  y: number;
+  width: number;
+}
+
+/**
+ * 一张生成结果。二维结构：
+ * - 第一维 `messageId` —— 绑定哪条聊天气泡；
+ * - 第二维同 `messageId` 下的多条记录 —— 这个气泡的多次重新生图，按 createdAt 排列。
+ * 重新生图只追加新行，旧图一律保留。
+ */
+export interface MessageImage {
+  id: string;
+  sessionId: string;
+  characterId: string;
+  messageId: string;
+  /** 实际送进模型的完整提示词（提示词块拼装后的结果） */
+  prompt: string;
+  /** 从回复 JSON 里取到的原始提示词，重新生图时复用它 */
+  rawPrompt: string;
+  /** 这次用的底图；固定底图模式下通常为 null（表示用的是角色 `image_seeds` 那组三视图） */
+  baseImageId: string | null;
+  url: string;
+  model: string;
+  status: "done" | "error";
+  error?: string;
+  createdAt: string;
+}
+
+/** 正在生图 / 上一次失败的状态，和聊天的 stream 分开，聊天可以继续 */
+export interface ImageRunState {
+  running: boolean;
+  sessionId: string | null;
+  messageId: string | null;
+  startedAt: number | null;
+  error: string | null;
+}
+
 /* -------------------------------- 设置 --------------------------------- */
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -221,6 +328,16 @@ export interface AppSettings {
   models: ModelProfile[];
   /** 当前激活档案的 id */
   activeModelId: string;
+  /** 图生图总开关：关闭后不解析 / 不生成 / 不显示悬浮画面 */
+  imageEnabled: boolean;
+  /** 生图档案列表，至少一条；默认图生图 */
+  imageModels: ImageProfile[];
+  /** 当前激活的生图档案 id */
+  activeImageModelId: string;
+  /** 生图提示词的硬编码块，顺序即拼装顺序 */
+  imagePromptBlocks: ImagePromptBlock[];
+  /** 悬浮画面组件的位置与宽度，未设置时按聊天列宽的一半初始化 */
+  imageWidget?: ImageWidgetGeometry;
   scriptTimeoutMs: number;
   enterToSend: boolean;
   showTokenEstimate: boolean;

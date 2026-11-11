@@ -3,6 +3,7 @@ import type {
   Character,
   CharacterDraft,
   Message,
+  MessageImage,
   MessageMeta,
   QuickPhrase,
   Session,
@@ -21,6 +22,8 @@ type CharRow = {
   tagline: string;
   description: string;
   greeting: string;
+  image_seed: string;
+  image_seeds: unknown;
   system_prompt: string;
   context_blocks: unknown;
   quick_phrases: unknown;
@@ -50,11 +53,39 @@ type MessageRow = {
   created_at: string | Date;
 };
 
+type ImageRow = {
+  id: string;
+  session_id: string;
+  character_id: string;
+  message_id: string | null;
+  prompt: string;
+  raw_prompt: string;
+  base_image_id: string | null;
+  url: string;
+  model: string;
+  status: string;
+  error: string;
+  created_at: string | Date;
+};
+
 const iso = (v: string | Date | null | undefined): string =>
   v instanceof Date ? v.toISOString() : typeof v === "string" ? v : nowIso();
 
 const asObject = <T>(v: unknown, fallback: T): T =>
   v && typeof v === "object" ? (v as T) : fallback;
+
+/**
+ * 三视图槽位：数组下标就是视图（正 / 侧 / 背），空槽用 `""` 占位，
+ * 所以只过滤非字符串，不压缩数组 —— 否则「只传了侧面」会被读成正面。
+ * 老数据只有单张 image_seed 时当成正面。
+ */
+function asImageSeeds(value: unknown, legacy: string | null | undefined): string[] {
+  const slots = Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string").slice(0, 3)
+    : [];
+  if (slots.some(Boolean)) return slots;
+  return legacy ? [legacy] : [];
+}
 
 function mapCharacter(row: CharRow): Character {
   return {
@@ -64,6 +95,7 @@ function mapCharacter(row: CharRow): Character {
     tagline: row.tagline,
     description: row.description,
     greeting: row.greeting ?? "",
+    imageSeeds: asImageSeeds(row.image_seeds, row.image_seed),
     systemPrompt: row.system_prompt,
     contextBlocks: asObject<ContextBlock[]>(row.context_blocks, []),
     quickPhrases: asObject<QuickPhrase[]>(row.quick_phrases, []),
@@ -98,6 +130,23 @@ function mapMessage(row: MessageRow): Message {
   };
 }
 
+function mapImage(row: ImageRow): MessageImage {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    characterId: row.character_id,
+    messageId: row.message_id ?? "",
+    prompt: row.prompt ?? "",
+    rawPrompt: row.raw_prompt ?? "",
+    baseImageId: row.base_image_id ?? null,
+    url: row.url ?? "",
+    model: row.model ?? "",
+    status: row.status === "error" ? "error" : "done",
+    error: row.error || undefined,
+    createdAt: iso(row.created_at),
+  };
+}
+
 /* -------------------------------- characters ------------------------------ */
 
 export async function listCharacters(): Promise<Character[]> {
@@ -121,6 +170,7 @@ export async function createCharacter(draft: Partial<CharacterDraft> = {}): Prom
     tagline: draft.tagline || "",
     description: draft.description || "",
     greeting: draft.greeting || "",
+    imageSeeds: draft.imageSeeds ?? [],
     systemPrompt: draft.systemPrompt || "",
     contextBlocks: draft.contextBlocks ?? defaultContextBlocks(),
     quickPhrases: draft.quickPhrases ?? [],
@@ -129,8 +179,8 @@ export async function createCharacter(draft: Partial<CharacterDraft> = {}): Prom
   };
   const { rows } = await getDb().query<CharRow>(
     `insert into characters
-      (id, name, avatar, tagline, description, greeting, system_prompt, context_blocks, quick_phrases, workflow, script, created_at, updated_at)
-     values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$12)
+      (id, name, avatar, tagline, description, greeting, image_seed, image_seeds, system_prompt, context_blocks, quick_phrases, workflow, script, created_at, updated_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$14)
      returning *`,
     [
       id,
@@ -139,6 +189,8 @@ export async function createCharacter(draft: Partial<CharacterDraft> = {}): Prom
       payload.tagline,
       payload.description,
       payload.greeting,
+      payload.imageSeeds[0] ?? "",
+      JSON.stringify(payload.imageSeeds),
       payload.systemPrompt,
       JSON.stringify(payload.contextBlocks),
       JSON.stringify(payload.quickPhrases),
@@ -166,6 +218,11 @@ export async function updateCharacter(
   if (patch.tagline !== undefined) push("tagline", patch.tagline);
   if (patch.description !== undefined) push("description", patch.description);
   if (patch.greeting !== undefined) push("greeting", patch.greeting);
+  if (patch.imageSeeds !== undefined) {
+    // 旧列同步写第一张：老版本回滚 / 旧备份读取时至少还有正面图
+    push("image_seed", patch.imageSeeds[0] ?? "");
+    push("image_seeds", JSON.stringify(patch.imageSeeds), "::jsonb");
+  }
   if (patch.systemPrompt !== undefined) push("system_prompt", patch.systemPrompt);
   if (patch.contextBlocks !== undefined) push("context_blocks", JSON.stringify(patch.contextBlocks), "::jsonb");
   if (patch.quickPhrases !== undefined) push("quick_phrases", JSON.stringify(patch.quickPhrases), "::jsonb");
@@ -301,6 +358,17 @@ export async function listMessages(sessionId: string): Promise<Message[]> {
   return rows.map(mapMessage);
 }
 
+/**
+ * 正文里带花括号的消息，供启动时的一次性清洗使用。
+ * 用 `like` 先在 SQL 里过一遍，避免每开一次应用就把全部历史反序列化进内存。
+ */
+export async function listJsonSuspectMessages(): Promise<Message[]> {
+  const { rows } = await getDb().query<MessageRow>(
+    "select * from messages where content like '%{%' order by created_at asc",
+  );
+  return rows.map(mapMessage);
+}
+
 export async function appendMessage(input: {
   sessionId: string;
   role: Message["role"];
@@ -379,6 +447,65 @@ export async function deleteMessagesFrom(sessionId: string, messageId: string): 
   ]);
 }
 
+/* --------------------------------- images -------------------------------- */
+
+export async function listImages(sessionId: string): Promise<MessageImage[]> {
+  const { rows } = await getDb().query<ImageRow>(
+    "select * from images where session_id = $1 order by created_at asc, id asc",
+    [sessionId],
+  );
+  return rows.map(mapImage);
+}
+
+export async function appendImage(input: {
+  sessionId: string;
+  characterId: string;
+  messageId: string;
+  prompt: string;
+  rawPrompt: string;
+  baseImageId?: string | null;
+  url: string;
+  model?: string;
+  status?: MessageImage["status"];
+  error?: string;
+}): Promise<MessageImage> {
+  const { rows } = await getDb().query<ImageRow>(
+    `insert into images
+      (id, session_id, character_id, message_id, prompt, raw_prompt, base_image_id, url, model, status, error, created_at)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *`,
+    [
+      // images.id 是 uuid 列，不能用带前缀的 uid
+      uid(),
+      input.sessionId,
+      input.characterId,
+      input.messageId,
+      input.prompt,
+      input.rawPrompt,
+      input.baseImageId ?? null,
+      input.url,
+      input.model ?? "",
+      input.status ?? "done",
+      input.error ?? "",
+      nowIso(),
+    ],
+  );
+  return mapImage(rows[0]);
+}
+
+export async function deleteImage(id: string): Promise<void> {
+  await getDb().query("delete from images where id = $1", [id]);
+}
+
+/** 消息被删 / 被截断后，把它名下已经没人认领的图一起清掉 */
+export async function pruneImages(sessionId: string): Promise<void> {
+  await getDb().query(
+    `delete from images i
+     where i.session_id = $1
+       and not exists (select 1 from messages m where m.id = i.message_id)`,
+    [sessionId],
+  );
+}
+
 /* --------------------------------- settings ------------------------------- */
 
 export async function loadSettings(): Promise<Record<string, unknown>> {
@@ -405,15 +532,18 @@ export interface BackupFile {
   characters: Character[];
   sessions: Session[];
   messages: Message[];
+  /** 旧备份没有这一段，导入时按空数组处理 */
+  images?: MessageImage[];
   settings: Record<string, unknown>;
 }
 
 export async function exportAll(): Promise<BackupFile> {
   const db = getDb();
-  const [chars, sess, msgs, settings] = await Promise.all([
+  const [chars, sess, msgs, imgs, settings] = await Promise.all([
     db.query<CharRow>("select * from characters order by created_at"),
     db.query<SessionRow>("select * from sessions order by created_at"),
     db.query<MessageRow>("select * from messages order by created_at"),
+    db.query<ImageRow>("select * from images order by created_at"),
     db.query<{ key: string; value: unknown }>("select key, value from settings"),
   ]);
   const settingsObj: Record<string, unknown> = {};
@@ -425,6 +555,7 @@ export async function exportAll(): Promise<BackupFile> {
     characters: chars.rows.map(mapCharacter),
     sessions: sess.rows.map(mapSession),
     messages: msgs.rows.map(mapMessage),
+    images: imgs.rows.map(mapImage),
     settings: settingsObj,
   };
 }
@@ -435,11 +566,18 @@ export async function importAll(data: BackupFile): Promise<void> {
   }
   const db = getDb();
   await db.transaction(async (tx) => {
-    await tx.exec("delete from messages; delete from sessions; delete from characters; delete from settings;");
+    await tx.exec(
+      "delete from images; delete from messages; delete from sessions; delete from characters; delete from settings;",
+    );
     for (const c of data.characters) {
+      // 旧备份只有单张 imageSeed；新备份（可能来自更早版本）两者都没有
+      const seeds = asImageSeeds(
+        (c as { imageSeeds?: unknown }).imageSeeds,
+        (c as { imageSeed?: string }).imageSeed,
+      );
       await tx.query(
-        `insert into characters (id,name,avatar,tagline,description,greeting,system_prompt,context_blocks,quick_phrases,workflow,script,created_at,updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb,$11,$12,$13)`,
+        `insert into characters (id,name,avatar,tagline,description,greeting,image_seed,image_seeds,system_prompt,context_blocks,quick_phrases,workflow,script,created_at,updated_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10::jsonb,$11::jsonb,$12::jsonb,$13,$14,$15)`,
         [
           c.id,
           c.name,
@@ -447,6 +585,8 @@ export async function importAll(data: BackupFile): Promise<void> {
           c.tagline,
           c.description,
           c.greeting ?? "",
+          seeds[0] ?? "",
+          JSON.stringify(seeds),
           c.systemPrompt,
           JSON.stringify(c.contextBlocks ?? []),
           JSON.stringify(c.quickPhrases ?? []),
@@ -469,6 +609,26 @@ export async function importAll(data: BackupFile): Promise<void> {
         [m.id, m.sessionId, m.role, m.content, m.status ?? "done", JSON.stringify(m.meta ?? {}), m.createdAt],
       );
     }
+    for (const img of data.images ?? []) {
+      await tx.query(
+        `insert into images (id,session_id,character_id,message_id,prompt,raw_prompt,base_image_id,url,model,status,error,created_at)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+        [
+          img.id,
+          img.sessionId,
+          img.characterId,
+          img.messageId,
+          img.prompt ?? "",
+          img.rawPrompt ?? "",
+          img.baseImageId ?? null,
+          img.url,
+          img.model ?? "",
+          img.status ?? "done",
+          img.error ?? "",
+          img.createdAt,
+        ],
+      );
+    }
     for (const [key, value] of Object.entries(data.settings ?? {})) {
       await tx.query("insert into settings (key,value) values ($1,$2::jsonb)", [key, JSON.stringify(value)]);
     }
@@ -476,7 +636,9 @@ export async function importAll(data: BackupFile): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await getDb().exec("delete from messages; delete from sessions; delete from characters; delete from settings;");
+  await getDb().exec(
+    "delete from images; delete from messages; delete from sessions; delete from characters; delete from settings;",
+  );
 }
 
 export async function dbStats(): Promise<{ characters: number; sessions: number; messages: number }> {

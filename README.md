@@ -4,7 +4,7 @@
 
 **它是什么** — React 19 + TypeScript + Vite 的单页应用。用 PGlite（编译成 WASM 的 Postgres）把角色卡、会话、消息、模型配置全部存进浏览器 IndexedDB，**没有后端、没有账号、没有服务端数据库**；模型请求由浏览器直接发往任意 OpenAI 兼容网关。整站可作为静态资源部署到 Cloudflare Workers / Pages / Vercel / Netlify。
 
-**它特别在哪** — 把「一次对话请求」拆成可观察、可编排的流水线：上下文块决定送什么 → 前置脚本可改写消息栈 → 工作流决定怎么调模型 → 结果带着执行日志落库。每个中间环节都能在界面上预览或试运行，而不是埋在一次 `fetch` 里。
+**它特别在哪** — 把「一次对话请求」拆成可观察、可编排的流水线：上下文块决定送什么 → 前置脚本可改写消息栈 → 工作流决定怎么调模型 → 结果带着执行日志落库。每个中间环节都能在界面上预览或试运行，而不是埋在一次 `fetch` 里。另外，角色回复可以顺带一句绘图提示词：应用把它从气泡里摘走，按可排序的提示词块拼成 prompt，拿角色卡的固定底图重画这一幕——聊到哪儿，画面就换到哪儿。
 
 **数据边界** — API Key 明文存在本地 IndexedDB；跨域调用依赖服务商的 CORS；PGlite 的 WASM 首次加载约 3 MB（gzip 后），之后由浏览器缓存。请勿在公用电脑上使用生产密钥。
 
@@ -56,12 +56,13 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 一次「发送」的完整链路（`src/lib/store.ts` 的 `regenerate` 是唯一入口）：
 
 1. 定位目标消息，按 user / assistant 两种情形回溯 `input` 并 `truncateAfter` 截断后续消息；
-2. `assembleContext()` 按角色卡的上下文块产出 `ChatMessage[]`，附带 trace 与 token 估算；
+2. `assembleContext()` 按角色卡的上下文块产出 `ChatMessage[]`，附带 trace 与 token 估算；图生图开着时，`kind: "image"` 的 system 预设（要求回复末尾返回生图 JSON）一并进入消息栈；
 3. 角色卡若配置了前置脚本，`runScript()` 可返回新消息栈覆盖装配结果；
 4. `resolveModelConfig()` 取设置里「当前」那条模型档案（全局只有一份生效配置，角色卡不再单独绑定模型）；
 5. 分流：`chatCompletion()` 直接请求，或 `runWorkflow()` 走 DFS 节点编排；`onDelta` 只写内存里的 `stream.buffer`；
 6. `finish()` 在结束 / 中止 / 出错时**一次性**追加消息落库，状态为 `done` / `stopped` / `error`；中止与报错也会保留已生成的部分；
-7. 流式期间消息列表渲染一条 `streaming-virtual` 虚拟消息，不写库。
+7. 流式期间消息列表渲染一条 `streaming-virtual` 虚拟消息，不写库；
+8. `finish()` 落库前用 `extractImagePrompt()` 把正文里的生图 JSON 摘掉：**入库的就是摘干净的台词**，JSON 只进 `meta.imagePrompt`；图生图开关打开且摘到提示词时，**不 await** 地触发 `generateImage()`，按当前气泡分组画图。
 
 > `src/main.tsx` 里 `initDb()` 是「即发即忘」并行启动，React 随后立即挂载；`App.tsx` 用 `ready` / `initError` 两个分支显示启动态与失败态。`initDb()` 通过 `readyPromise` 单例去重，被 `main.tsx` 与 `store.init()` 调用两次也不会重复建表。
 
@@ -154,6 +155,20 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 主页光斑 | 任一抽屉打开时 `animation-play-state: paused` | 光斑在内容列的 `backdrop-filter` **后面**漂移，后面一变，列的模糊就得整块重算——正好撞上抽屉滑入的那几帧。抽屉一开就遮住大半画面，停住看不出来 |
 | 常驻抽屉 | 只订用得到的字段（`settings.userName`），不要订整个 `settings` | 关着的抽屉也会跟着设置抽屉里的每次拖动 / 每次键入重渲染整棵子树；工作流校验这类只在某一页用得到的计算，也别挂在组件顶层 |
 
+### 2.8 生图链路
+
+> 目标不是「按一下出一张图」，而是**边聊边变**：角色每条回复顺带一句绘图提示词，画面以气泡为单位换一幕。底图固定为角色卡里那组三视图，不叠加上一轮的结果 —— 长相不会随着聊得越久越漂。
+
+| 环节 | 入口文件 | 职责 | 关键决策 |
+| --- | --- | --- | --- |
+| 提示词摘取 | `src/lib/image-prompt.ts` | `extractImagePrompt()`：从回复正文里找出绘图 JSON（围栏或裸对象），返回「去掉 JSON 的正文 + 提示词 + 是否还有未闭合片段」 | 五档容错解析（原样 → 全角标点 → 裸换行转义 → 去尾逗号 → 裸键名）+ `scrapePrompt()` 抠句子兜底；全角标点只在结构位替换，字符串内的中文标点不动；括号配对带字符串状态机，围栏内不参与裸扫描，配对失败只前进一格；流式途中未闭合的围栏 / `{` 一旦看着像绘图 JSON 就截掉 |
+| 提示词编排 | `src/lib/image-prompt.ts` | `assembleImagePrompt()`：按有序块拼最终 prompt | 块类型 `character`（角色名 / 简介 / 描述）、`text`（硬编码，支持 `{{char}}` / `{{user}}` / `{{prompt}}`）、`prompt`（模型给的那句插入点）；块之间用换行连接，全部禁用 / 为空时退回模型原文 |
+| 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传参考图打 `/v1/images/edits` —— 一张用 `image`，多张用 `image[]`（gpt-image-1 系），被 4xx 拒掉时把三视图横向拼成一张再试一次；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 2:3 再压成 800×1200 WebP，抓不到（CORS / 外链）就退回原链接 |
+| 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` / `composeReferenceSheet()` | 生成图：按 2:3 居中 cover 裁切后压成 800×1200 WebP 0.86，超体积再降一档 600×900 / 0.72；三视图参考图**不裁切**，只按长边 1280 等比缩小压，避免把侧身 / 背面的轮廓裁掉；多图被网关拒时横向拼一张（contain，留边不裁内容） |
+| 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（上限 4，换会话即清空），避免并发把接口打到限流；底图恒定取角色卡的三视图（`image_seeds`），不放链；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
+| 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 2:3 竖图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是外层 940 内容列）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
+| 图库 | 同上 `ImageGallery` | 按气泡分组列出全部版本，可点选 / 删除 | 这是「中途演化的图不能丢」的落脚点：组件一次只显示一组，历史都在这里 |
+
 ---
 
 ## 3. 源码地图
@@ -191,7 +206,9 @@ RP-Studio/
    │  ├─ ease.ts                # 动效曲线与 spring 常量（beui 组件共用）
    │  ├─ text-shimmer.ts        # shimmer 渐变的关键帧与类名（beui 组件共用）
    │  ├─ i18n.tsx               # beui 组件文案解析：labels > LocaleProvider > 中文默认
-   │  ├─ image.ts               # 背景图预处理：缩到长边 2560、转 WebP、超限再降一档
+   │  ├─ image.ts               # 图片预处理：背景 2560；生成图与底图裁成 2:3、800×1200 WebP
+   │  ├─ image-prompt.ts        # 生图提示词：从回复里摘 JSON、按块拼装最终 prompt
+   │  ├─ image-gen.ts           # 绘图请求：images/edits（multipart）与 images/generations（JSON）
    │  ├─ favicon.ts             # 站点 favicon URL 推导
    │  ├─ focusable.ts           # 可聚焦元素判定（select / popover 共用）
    │  ├─ hooks/use-favicon.ts   # favicon 解码失败即降级为占位图标
@@ -204,7 +221,8 @@ RP-Studio/
    │  ├─ motion/                # beui 源码：text-shimmer / select / popover-morph / magnetic / button
    │  ├─ home/Backdrop.tsx      # 底色 → 自定义背景图 → 光斑漂移 → 网格遮罩
    │  ├─ chat/                  # ChatView / Header / MessageList / MessageItem / Markdown / Composer
-   │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer / BackgroundSettings
+   │  ├─ image/                 # ImageStage（悬浮画面 + 图库）/ ImagePromptEditor（块编排）
+   │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer / ModelSettings / ImageSettings / BackgroundSettings
    │  ├─ character/ContextEditor.tsx
    │  ├─ script/ScriptEditor.tsx
    │  └─ workflow/WorkflowEditor.tsx
@@ -220,7 +238,9 @@ RP-Studio/
 ```sql
 characters(
   id uuid pk, name text, avatar text, tagline text, description text,
-  greeting text, system_prompt text, context_blocks jsonb, quick_phrases jsonb,
+  greeting text, image_seeds jsonb, -- 三视图参考图 ["正面","侧面","背面"]（data URL / 外链，可留空槽）
+  image_seed text, -- 旧版单张底图，保留只为兼容旧备份，读写时当兜底
+  system_prompt text, context_blocks jsonb, quick_phrases jsonb,
   workflow jsonb, script text, model_override jsonb, -- 旧版角色级模型覆盖，现不使用
   created_at timestamptz, updated_at timestamptz
 )
@@ -238,17 +258,30 @@ messages(
   created_at timestamptz
 )
 
+images(
+  id uuid pk, session_id uuid references sessions(id) on delete cascade,
+  character_id uuid, message_id uuid, -- 第一维：绑定哪条气泡
+  prompt text,        -- 拼装后真正送进绘图模型的 prompt
+  raw_prompt text,    -- 从回复 JSON 里摘到的原文，重新生图复用它
+  base_image_id uuid, -- 这一张用的底图；固定底图模式下为 null（用角色 image_seed）
+  url text, model text, status text, error text,
+  created_at timestamptz             -- 第二维：同 message_id 下按它排序
+)
+
 settings(key text pk, value jsonb)
 schema_meta(id int pk, version int)
 ```
 
-- **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`），在事务内更新 `schema_meta`，升级不丢数据。
+- **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`，v3 补 `characters.image_seed` + `images` 表与两个索引），在事务内更新 `schema_meta`，升级不丢数据。
 - **模型档案**：一条档案 = `endpoint`（完整地址，含 `/chat/completions`）+ `apiKey` + `params`（请求体 JSON），模型名写在 `params.model` 里，新建档案预置 `model / stream / temperature / top_p` 四个键。`settings` 表的 `app` 行里存 `models: ModelProfile[]` + `activeModelId`。旧的单模型结构（`settings.app.model`）与旧的 `baseUrl` 字段由 `normalizeSettings()` 在 `init()` / 导入备份时迁移成一条档案（`baseUrl` 会补成完整 endpoint，旧参数会补上 `model` 与 `stream`）；已移除的全局「流式输出」开关在归一化时直接丢弃。空数组、重复 id、`activeModelId` 不指向任何档案都会在归一化时修正。
 - **ID**：浏览器 `crypto.randomUUID()` 生成，不依赖 Postgres 扩展；`uid(prefix)` 加前缀。
 - **主页背景**：`settings.app.background: { url, opacity, blur }`，没有单独的表或对象存储。上传的图片先在前端缩到长边 2560、转 WebP，通常压到几百 KB 再以 data URL 入库；`normalizeSettings()` 会丢弃非 `http(s)` / `blob` / `data:image` 的值并把 `opacity`、`blur` 夹回合法区间，所以坏数据最多让背景消失，不会把渲染层带崩。因为 data URL 体积不小，`setSettings(patch, { persist: false })` 允许只改内存——拖不透明度 / 模糊滑杆时走它，停手后才整行写 jsonb。
 - **写入策略**：流式过程只在内存累积，结束后一次性落库；停止 / 出错也保存已生成部分。
 - **重新生成 = 多版本**：对 assistant 消息重新生成时不做「删掉再插一条」，而是**沿用原消息的 id 与 createdAt**，生成完用同一个 id 写回，并把历史回答存进 `meta.variants`（`{ content, createdAt }[]`，含当前这一版），`meta.variantIndex` 指向当前版。`content` 列始终等于 `variants[variantIndex].content`，所以上下文装配、导出、复制都拿当前选中的那一版，不需要额外的读写路径。切换版本只改 `content` + `meta`，不产生新行；消息删除时版本跟着走。编辑用户消息（`editMessage`）视为换了前提，旧回答照旧丢弃。
 - **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。
+- **生图提示词**：绘图 JSON **不留在正文里** —— `finish()` 落库时就把 `content` 换成摘干净的台词，那句提示词单独存进 `meta.imagePrompt`，重新生图 / 切版本时用它。这样下一轮 `assembleContext()` 喂回模型的历史里没有 JSON：省 token，也不会让模型学会在正文里复读模板。「回复只有 JSON」时正文为空，气泡退化成一行「画面已更新」（还能编辑原文 / 重新生成 / 删除）。
+  - 老数据由启动时的 `stripLegacyImageJson()` 就地清洗：先用 `content like '%{%'` 在 SQL 里筛出可疑行，只对真解析出提示词的消息改写正文与 `meta.variants`，`importData()` 后同样跑一次。
+- **图片二维结构**：`images` 表的 `message_id` 是第一维（绑定哪条气泡），同一 `message_id` 下的多行是第二维（多次重新生图，按 `created_at` 升序）。重新生图只 `insert` 新行，不覆盖旧图；图库按气泡分组展示全部版本。**第二维不是链**：所有图都拿角色卡的 `image_seed` 当底图（`base_image_id` 通常为 null），所以同一气泡的多版是「同一瞬间的不同候选」，翻页不会一版接一版地漂走；不同气泡之间的画面差异全部来自提示词。删除消息 / 截断历史时 `pruneImages()` 清掉失去落点的图；重新生成走「先删后插同 id」，所以要等消息写回之后再 prune。备份文件新增可选的 `images` 字段，旧备份导入时按空数组处理。
 
 ![角色卡初始消息](docs/greeting.png)
 
@@ -261,8 +294,11 @@ type ContextBlock =
   | { id: string; kind: "system"; enabled: boolean; label?: string }
   | { id: string; kind: "history"; enabled: boolean; from: number; to: number; label?: string }
   | { id: string; kind: "custom"; enabled: boolean; role: "system" | "user" | "assistant"; content: string; label?: string }
+  | { id: string; kind: "image"; enabled: boolean; content: string; label?: string }
   | { id: string; kind: "user"; enabled: boolean; label?: string };
 ```
+
+- **生图 JSON 预设**：`kind: "image"` 是一条可编辑的 system 指令，只在顶栏图生图开关打开时进入上下文；关掉时角色卡里不显示、装配时记「图生图未开启」。打开开关会给还没有这条预设的角色补一份（`ensureImageDirectiveBlock`），老角色 / 导入的备份也走同一条路；装配时若开关开着但角色仍缺这个块，会兜底注入默认预设。
 
 - **负数下标**：`from = -5, to = -1` 取倒数第 5 条到倒数第 1 条；`0 → -1` 取全部。越界自动裁剪到 `[0, n-1]`，正数按 0 基绝对下标处理，`from > to` 自动交换。
 - **装配顺序**：逐块产出消息 → 任意相邻同 `role`（system / user / assistant）用 `\n\n` 连成一条（兼容要求严格交替的接口）→ 没有启用的 `user` 块时自动在末尾补当前输入。
@@ -304,6 +340,31 @@ return { text: "已注入提示", messages: ctx.messages };
 - 角色卡「脚本」页 = **前置脚本**：每次生成前执行；仅当返回 `messages` 非空时才替换实际请求的消息栈。当前实现未把前置脚本日志接到 UI。
 - 工作流「脚本」节点 = 编排内执行，日志会进入节点日志，只影响后续节点。
 - 沙箱**不是权限隔离**：Worker 内仍可访问 `fetch` 等全局能力，超时只是兜底。
+
+### 4.5 生图规范
+
+**约定**：图生图开关打开时，角色卡的上下文块里会有一条可编辑的 system 预设（`kind: "image"`），要求聊天模型在正文后返回一段 JSON，其中带一个绘图提示词键。默认文案在 `context.ts` 的 `DEFAULT_IMAGE_DIRECTIVE`，可直接在角色卡「提示词编排」里改。
+
+```json
+{ "生图提示词": "雨夜，湿漉漉的青石街道，霓虹映在水面，女孩收起黑伞回头，半身，逆光" }
+```
+
+- **摘取**：`extractImagePrompt()` 认围栏块（` ```json `）和裸对象两种写法，键名匹配放宽到「含生图/绘图/画面/图像/出图 + 提示词/描述」以及 `image*prompt`，`prompt` 只在对象里不超过 3 个键时才认。**不含绘图键的普通 JSON 代码块原样保留**。
+  解析是「由严到松」的五档修复链（`repairJson()`），只在上一档 `JSON.parse` 失败时才往下走：原样 → 全角标点（只在结构位替换，字符串里的中文标点原样保留）→ 字符串里的裸换行转义 → 去尾逗号 → 裸键名加引号。整段彻底烂掉（少括号 / 被截断）还有 `scrapePrompt()` 兜底，按「键名：值」抠出那句话，并往外扩到包住它的大括号一起摘掉。扫描时若某个 `{` 配对失败只前进一格而非整段跳过 —— 否则正文里先冒出的一个孤立 `{` 会把后面真正的 JSON 整段吞掉。
+- **不渲染**：气泡、复制、Markdown 全部用摘完的正文；整条回复只有 JSON 时只显示一行「画面已更新」（带编辑 / 重新生成 / 删除）。流式过程中尚未闭合的围栏或 `{` 一旦看着像绘图 JSON 就提前截掉，不会闪出半截 JSON。
+- **拼装**：`settings.imagePromptBlocks` 是有序块数组，与上下文块同一套操作（拖拽 / 上下移 / 单块启停 / 预览）：
+
+  ```ts
+  type ImagePromptBlock =
+    | { id: string; kind: "text"; enabled: boolean; content: string; label?: string } // 硬编码，支持 {{char}} {{user}} {{prompt}}
+    | { id: string; kind: "prompt"; enabled: boolean; label?: string };     // 模型返回的那句插入点
+  ```
+
+  块之间用换行连接；全部禁用 / 为空时退回模型给的原文，绝不发空 prompt。**角色外形不再单独成块**——需要角色名时用 `{{char}}`，需要固定外观就写进硬编码块。
+- **请求**：生图档案 = `endpoint` + `apiKey` + `params`(JSON) + `mode`。`mode: "edit"`（默认）走 multipart，参考图是文件、`prompt` 是拼装结果，其余参数逐字段进表单：只有一张时字段名是 `image`（所有网关都认），三张时用 `image[]`（gpt-image-1 起支持）；多图被 4xx 拒掉会自动把三视图横向拼成一张单图重试。`mode: "generate"`（不建议）整体 JSON 作为请求体。比例固定 **2:3 竖图**，默认 `size: 1024x1536`（老档案里的 `1024x1024` 在规范化时静默升级）。
+- **裁切压缩**：接口返回的图不管什么比例，落库前都按 2:3 居中 cover 裁切（短边铺满、长边居中截掉），再压成 800×1200 WebP；超过体积上限再降一档到 600×900 / 0.72 画质。三视图参考图走另一条链路：**不裁切**，只按长边 1280 等比缩小压成 WebP —— 参考图是给模型看人长什么样的，裁掉两侧可能正好裁掉侧身 / 背面的轮廓。
+- **底图固定**：不再链式演化。所有图都以角色卡的 `image_seeds`（三视图：正面 / 侧面 / 背面，可只传其中几张，空槽存 `""` 以保住视图位置）为参考，画面差异只来自提示词；重新生图的多个版本因此天然处在同一起点。入口是角色卡基础页的三个上传槽，存之前去掉尾部空槽、中间空槽保留。没传参考图又选了图生图会直接提示去上传，不会偷偷退化成文生图。`image_seed` 旧列保留不删，只在读老数据 / 导入旧备份时当兜底。
+- **调度**：绘图请求慢于聊天，撞上正在画时排队（上限 4），换会话清空队列——那些任务绑的是上一个会话的气泡，留着只会画到没人在看的对话上。
 
 ---
 

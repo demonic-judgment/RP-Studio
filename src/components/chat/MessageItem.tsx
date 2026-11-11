@@ -1,9 +1,21 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Check, ChevronLeft, ChevronRight, Copy, GitBranch, Pencil, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  GitBranch,
+  ImageIcon,
+  Pencil,
+  RotateCcw,
+  Trash2,
+  X,
+} from "lucide-react";
 import type { Message } from "../../lib/types";
 import { cn, copyText, formatTime } from "../../lib/utils";
 import { useSmoothText } from "../../lib/hooks/use-smooth-text";
+import { extractImagePrompt } from "../../lib/image-prompt";
 import { Markdown } from "./Markdown";
 import { MessageActivity, type RunLog } from "./MessageActivity";
 import { Button, IconButton } from "../ui/Button";
@@ -57,21 +69,33 @@ function MessageItemBase({
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  const isUser = message.role === "user";
+  const isError = message.status === "error";
+  /**
+   * 角色回复末尾夹带的生图 JSON 不进气泡：正文和提示词在这里分开，
+   * 提示词只在消息 meta 和画面组件那边用。用户自己写的 JSON 不动。
+   */
+  const extracted = useMemo(
+    () =>
+      isUser ? { text: message.content, prompt: "", pending: false } : extractImagePrompt(message.content),
+    [isUser, message.content],
+  );
+  const display = extracted.text;
+
   const handleCopy = async () => {
-    const ok = await copyText(message.content);
+    const ok = await copyText(display);
     if (ok) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     }
   };
 
-  const isUser = message.role === "user";
-  const isError = message.status === "error";
   // 正在写入的这一条，以及页面上残留的半截流式消息，都按 streaming 呈现
   const responseStatus: StreamingResponseStatus =
     streaming || message.status === "streaming" ? "streaming" : "complete";
-  // 打字机：按帧匀速揭示缓冲文本，而不是把网络 chunk 整块甩出来
-  const revealed = useSmoothText(message.content, { enabled: Boolean(streaming) });
+  // 打字机：按帧匀速揭示缓冲文本，而不是把网络 chunk 整块甩出来。
+  // 喂的是摘掉 JSON 之后的正文 —— 先揭示再摘会让那段 JSON 在气泡里闪一下。
+  const revealed = useSmoothText(display, { enabled: Boolean(streaming) });
 
   // 重新生成留下的历史版本；只有一版时不显示切换器
   const variants = message.meta.variants ?? [];
@@ -192,6 +216,79 @@ function MessageItemBase({
     );
   }
 
+  /**
+   * 整条回复只有生图 JSON 时没有正文可渲染。不铺一个空气泡，
+   * 只留一行「画面已更新」—— 需要时还能从这里编辑原文 / 重新生成 / 删除。
+   */
+  if (!display && (extracted.prompt || message.meta.imagePrompt)) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.24 }}
+        className="group flex items-center gap-2 text-[11.5px] text-fg-subtle"
+      >
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
+          {avatar}
+        </span>
+        <ImageIcon size={12} className="shrink-0 text-primary/70" />
+        <span>画面已更新</span>
+        <span className="tabular-nums opacity-70">{formatTime(message.createdAt)}</span>
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-200 focus-within:opacity-100 group-hover:opacity-100">
+          <IconButton
+            label="编辑原文"
+            className="h-7 w-7"
+            onClick={() => setEditing(true)}
+            disabled={disabled || streaming}
+          >
+            <Pencil size={12} />
+          </IconButton>
+          <IconButton
+            label="重新生成"
+            className="h-7 w-7"
+            onClick={() => onRegenerate(message.id)}
+            disabled={disabled || streaming}
+          >
+            <RotateCcw size={12} />
+          </IconButton>
+          <IconButton
+            label="删除"
+            className="h-7 w-7 hover:text-danger"
+            onClick={() => onDelete(message.id)}
+            disabled={disabled}
+          >
+            <Trash2 size={12} />
+          </IconButton>
+        </div>
+
+        {/* 纯 JSON 的那一版也要能翻回有台词的版本 */}
+        {variants.length > 1 && (
+          <div className="ml-auto flex items-center gap-0.5">
+            <IconButton
+              label="上一版回答"
+              className="h-6 w-6"
+              onClick={() => onSwitchVariant(message.id, variantIndex - 1)}
+              disabled={disabled || variantIndex <= 0}
+            >
+              <ChevronLeft size={12} />
+            </IconButton>
+            <span className="min-w-[34px] text-center tabular-nums">
+              {variantIndex + 1} / {variants.length}
+            </span>
+            <IconButton
+              label="下一版回答"
+              className="h-6 w-6"
+              onClick={() => onSwitchVariant(message.id, variantIndex + 1)}
+              disabled={disabled || variantIndex >= variants.length - 1}
+            >
+              <ChevronRight size={12} />
+            </IconButton>
+          </div>
+        )}
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -212,7 +309,7 @@ function MessageItemBase({
 
       <StreamingResponse
         status={isError ? "error" : responseStatus}
-        copyText={message.content}
+        copyText={display}
         onCopy={handleCopy}
         onRetry={message.meta.greeting ? undefined : () => onRegenerate(message.id)}
         labels={RESPONSE_LABELS}

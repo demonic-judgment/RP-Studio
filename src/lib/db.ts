@@ -76,6 +76,52 @@ const MIGRATIONS: { version: number; sql: string }[] = [
     version: 2,
     sql: `alter table characters add column if not exists greeting text not null default '';`,
   },
+  {
+    /**
+     * 生图：角色卡带一张初始底图；生成结果单独成表而不是塞 message.meta ——
+     * 一张 1024 的图压完也有一两百 KB，塞进消息 jsonb 会让每次 listMessages 都变沉。
+     * images 是二维结构：message_id 是第一维（绑定哪条气泡），
+     * 同一 message_id 下的多行就是第二维（多次重新生图，按 created_at 排序）。
+     */
+    version: 3,
+    sql: `
+      alter table characters add column if not exists image_seed text not null default '';
+
+      create table if not exists images (
+        id uuid primary key,
+        session_id uuid not null references sessions(id) on delete cascade,
+        character_id uuid not null,
+        message_id uuid,
+        prompt text not null default '',
+        raw_prompt text not null default '',
+        base_image_id uuid,
+        url text not null default '',
+        model text not null default '',
+        status text not null default 'done',
+        error text not null default '',
+        created_at timestamptz not null default now()
+      );
+
+      create index if not exists idx_images_session on images(session_id, created_at asc);
+      create index if not exists idx_images_message on images(message_id, created_at asc);
+    `,
+  },
+  {
+    /**
+     * 底图从「一张」升级成三视图（正面 / 侧面 / 背面）：新列存数组，
+     * 老数据把 image_seed 那唯一一张挪进第一个槽位。image_seed 列保留不删 ——
+     * 导入旧备份时仍然照它写，读的时候当兜底。
+     */
+    version: 4,
+    sql: `
+      alter table characters add column if not exists image_seeds jsonb not null default '[]'::jsonb;
+
+      update characters
+         set image_seeds = jsonb_build_array(image_seed)
+       where coalesce(image_seed, '') <> ''
+         and jsonb_array_length(image_seeds) = 0;
+    `,
+  },
 ];
 
 export async function initDb(): Promise<PGlite> {
@@ -110,6 +156,7 @@ export async function initDb(): Promise<PGlite> {
 export async function resetDatabase(): Promise<void> {
   const db = getDb();
   await db.exec(`
+    drop table if exists images cascade;
     drop table if exists messages cascade;
     drop table if exists sessions cascade;
     drop table if exists characters cascade;
