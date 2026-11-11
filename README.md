@@ -38,7 +38,7 @@ pnpm preview    # 本地预览生产构建
 pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 ```
 
-`.npmrc` 已把 registry 指向 `https://registry.npmmirror.com`；`pnpm-workspace.yaml` 的 `allowBuilds` 放行 `esbuild` 与 `workerd` 的构建脚本。仓库未锁定 pnpm 版本。
+`.npmrc` 已把 registry 指向 `https://registry.npmmirror.com`。仓库不锁定 pnpm 版本（本地 12.x、Cloudflare 构建镜像 10.x 都要能装），因此 `pnpm-workspace.yaml` 里同时留着两套写法：`packages: ["."]` 是单包仓库的显式声明，**pnpm 10 缺了它会直接报 `packages field missing or empty`**；`onlyBuiltDependencies`（pnpm 10）与 `allowBuilds`（pnpm 11+）各读各的，放行 `esbuild` 与 `workerd` 的构建脚本。
 
 ---
 
@@ -156,7 +156,7 @@ RP-Studio/
 ├─ components.json              # shadcn CLI 配置（new-york / Tailwind v4）
 ├─ tsconfig.json
 ├─ wrangler.jsonc               # Workers 静态资源 + SPA 回退
-├─ pnpm-workspace.yaml          # allowBuilds: esbuild / workerd
+├─ pnpm-workspace.yaml          # packages: ["."] + 构建脚本放行（兼容 pnpm 10 / 12）
 ├─ .npmrc                       # 国内 npm 镜像
 ├─ public/favicon.svg
 ├─ docs/                        # 界面截图
