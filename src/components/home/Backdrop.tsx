@@ -6,8 +6,13 @@ import { useStore } from "../../lib/store";
  */
 export function Backdrop() {
   const background = useStore((s) => s.settings.background);
+  // 抽屉打开时把漂移停掉：光斑在内容列的 backdrop-filter 后面运动，
+  // 后面一变化，列上的高斯模糊就得整块重算——抽屉滑入的那几帧正好撞上，
+  // 移动端直接掉帧。抽屉一开就遮住了大半画面，停住看不出来。
+  const frozen = useStore((s) => s.drawer !== null);
   const hasImage = Boolean(background?.url);
   const blur = background?.blur ?? 0;
+  const driftState = frozen ? ("paused" as const) : ("running" as const);
 
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg">
@@ -38,6 +43,7 @@ export function Backdrop() {
         style={{
           background: "color-mix(in oklab, var(--accent) 18%, transparent)",
           animation: "drift 26s ease-in-out infinite",
+          animationPlayState: driftState,
         }}
       />
       <div
@@ -49,6 +55,7 @@ export function Backdrop() {
         style={{
           background: "color-mix(in oklab, var(--accent) 14%, transparent)",
           animation: "drift 32s ease-in-out infinite reverse",
+          animationPlayState: driftState,
         }}
       />
       <div

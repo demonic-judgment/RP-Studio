@@ -143,6 +143,17 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 上下文估算 | 输入框用 `useDeferredValue` 喂 `assembleContext` | 装配要扫全部历史，按键触发的高频重算会和输入争同一帧 |
 | `setSettings` | 主题 / 强调色没变就不调 `applyTheme` | 设置里每敲一个字都会走这里，重刷 CSS 变量等于整页样式失效 |
 
+### 2.7 覆盖层（抽屉 / 弹窗）渲染约定
+
+> 移动端最贵的一笔是「大面积的 `backdrop-filter` 正在动」。下面几条是冲这个来的。
+
+| 位置 | 规则 | 为什么 |
+| --- | --- | --- |
+| 抽屉遮罩 | 只做不透明度淡入淡出，**不要挂 `backdrop-blur`** | 全屏 `backdrop-filter` 在淡入淡出的每一帧都要把整个视口重新模糊一遍；底下还压着内容列自己的 `backdrop-blur-xl`，等于模糊叠模糊。去掉那 3px、把压暗从 25% 提到 30% 补回层次 |
+| 抽屉面板 | `.drawer-panel` → `will-change: transform` + `contain: layout` | 面板接近满宽，不提前提升成合成层的话，位移的每一帧都要重新栅格化；`contain: layout` 把内部重排锁在面板里，滑入不牵动页面其它部分。**不能用 `contain: paint`**，那会把面板自己的 `shadow-float` 一起裁掉 |
+| 主页光斑 | 任一抽屉打开时 `animation-play-state: paused` | 光斑在内容列的 `backdrop-filter` **后面**漂移，后面一变，列的模糊就得整块重算——正好撞上抽屉滑入的那几帧。抽屉一开就遮住大半画面，停住看不出来 |
+| 常驻抽屉 | 只订用得到的字段（`settings.userName`），不要订整个 `settings` | 关着的抽屉也会跟着设置抽屉里的每次拖动 / 每次键入重渲染整棵子树；工作流校验这类只在某一页用得到的计算，也别挂在组件顶层 |
+
 ---
 
 ## 3. 源码地图
@@ -452,7 +463,7 @@ pnpm dlx shadcn@latest add tooltip
 
 生成的组件写入 `src/components/ui/`，通过 `@/lib/utils` 复用 `cn()`。`src/index.css` 已把 `background / foreground / card / muted / primary-foreground / destructive / input` 等 shadcn 令牌映射到 Material 变量；品牌强调色与 shadcn 的 `accent` 语义刻意分开：`--color-accent` 指向 `--accent-soft`（`--secondary-container`），而 `--accent` 始终专指品牌色。
 
-> 两个已知缺口：映射表里**没有** `--color-ring` 和 `--color-border`（本项目用裸变量 `--ring` 与自定义名 `--color-line`）。因此用 CLI 追加的组件若写了 `ring-ring` / `border-border` 会拿不到令牌，需要手动换成 `focus:ring-[var(--ring)]/15` / `border-line`。另外不需要再执行 `shadcn init`，它会覆盖现有主题变量。
+> `src/index.css` 的 `@theme inline` 已把 `--color-ring` / `--color-border` / `--color-border-strong` 映射到本项目的 `--ring` / `--border` / `--border-strong`，所以用 CLI 追加的组件写 `ring-ring` / `border-border` 能直接拿到令牌，不用手动替换；项目自定义的 `--color-line` 仍然留给分隔线。另外不需要再执行 `shadcn init`，它会覆盖现有主题变量。
 
 ---
 
@@ -472,7 +483,6 @@ pnpm dlx shadcn@latest add tooltip
 - 工作流是「可编排的有向图 + 顺序 DFS 遍历」，不是图灵完备调度器；无重试 / 定时 / 并行节点。
 - 脚本沙箱不是权限隔离，Worker 内仍可 `fetch`；超时是兜底。
 - Markdown 消毒放行了 `target` 属性但未强制 `rel="noopener noreferrer"`。
-- shadcn 令牌映射缺 `--color-ring` / `--color-border`，见第 6 章说明。
 
 ---
 

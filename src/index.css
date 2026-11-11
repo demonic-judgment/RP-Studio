@@ -327,6 +327,17 @@
   }
 }
 
+/* 抽屉面板：滑入滑出只做 transform 位移，别让首帧去重绘整块面板。
+   - will-change 让浏览器提前把它提升成合成层，第一帧就位（面板很宽，
+     不提升的话位移的每一帧都要重新栅格化）
+   - contain: layout 把面板内部的重排隔离开，抽屉动画不牵动页面其它部分
+   - 不能用 contain: paint：那会把面板自己的 box-shadow 一起裁掉 */
+.drawer-panel {
+  will-change: transform;
+  contain: layout;
+  backface-visibility: hidden;
+}
+
 /* 可手动拉伸的多行输入：把滚动条和右下角的缩放手柄让进圆角内侧。
    一圈透明右边框把浏览器的滚动条顶到内容区里侧，底色依旧铺满整个圆角；
    右下角单独收窄，手柄才不会被大圆弧切掉半边。

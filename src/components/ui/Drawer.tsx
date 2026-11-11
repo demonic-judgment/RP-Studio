@@ -73,6 +73,10 @@ export function Drawer({
     <AnimatePresence>
       {open && (
         <>
+          {/* 遮罩层只做不透明度动画，不带 backdrop-filter：
+              全屏 backdrop-blur 在淡入淡出的每一帧都要把整个视口重新模糊一遍，
+              移动端这是最贵的一笔开销（底下还压着内容列自己的 backdrop-blur-xl，
+              等于模糊叠模糊）。挪掉 3px 模糊、把压暗从 25% 提到 30% 补回层次。 */}
           <motion.div
             key="backdrop"
             initial={{ opacity: 0 }}
@@ -80,7 +84,7 @@ export function Drawer({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-black/25 backdrop-blur-[3px] dark:bg-black/50"
+            className="fixed inset-0 z-40 bg-black/30 dark:bg-black/55"
           />
           <motion.aside
             key="panel"
@@ -93,7 +97,7 @@ export function Drawer({
             exit={{ x: side === "right" ? "100%" : "-100%" }}
             transition={{ type: "spring", stiffness: 420, damping: 40, mass: 0.55 }}
             className={cn(
-              "fixed inset-y-0 z-50 flex flex-col bg-surface shadow-float outline-none",
+              "drawer-panel fixed inset-y-0 z-50 flex flex-col bg-surface shadow-float outline-none",
               side === "right" ? "right-0 border-l border-line" : "left-0 border-r border-line",
               className ?? "w-[min(400px,100vw)]",
             )}

@@ -30,7 +30,10 @@ export function CharacterDrawer() {
     s.characters.find((c) => c.id === s.activeCharacterId) ?? null,
   );
   const messages = useStore((s) => s.messages);
-  const settings = useStore((s) => s.settings);
+  // 只订用得到的两个字段：订整份 settings 的话，设置抽屉里拖滑杆、改称呼
+  // 都会把这个抽屉整棵树重渲染一遍（哪怕它是关着的）。
+  const userName = useStore((s) => s.settings.userName);
+  const scriptTimeoutMs = useStore((s) => s.settings.scriptTimeoutMs);
   const saveCharacter = useStore((s) => s.saveCharacter);
   const removeCharacter = useStore((s) => s.removeCharacter);
   const newSession = useStore((s) => s.newSession);
@@ -54,6 +57,13 @@ export function CharacterDrawer() {
     if (!open || !draft || !character) return false;
     return JSON.stringify(draft) !== JSON.stringify(character);
   }, [open, draft, character]);
+
+  // 只在「工作流」页真的开着时才校验：validateWorkflow 要遍历全部节点与连线，
+  // 挂在组件顶层等于每次重渲染都算一遍，而结果只有那一页用得到。
+  const workflowErrors = useMemo(
+    () => (open && tab === "workflow" && draft ? validateWorkflow(draft.workflow) : []),
+    [open, tab, draft],
+  );
 
   if (!draft) return null;
 
@@ -85,8 +95,6 @@ export function CharacterDrawer() {
       setSaving(false);
     }
   };
-
-  const workflowErrors = validateWorkflow(draft.workflow);
 
   return (
     <>
@@ -265,7 +273,7 @@ export function CharacterDrawer() {
               blocks={draft.contextBlocks}
               onChange={(contextBlocks: ContextBlock[]) => patch({ contextBlocks })}
               history={messages}
-              userName={settings.userName}
+              userName={userName}
             />
           )}
 
@@ -356,8 +364,8 @@ export function CharacterDrawer() {
                 onChange={(script) => patch({ script })}
                 character={draft}
                 messages={messages}
-                userName={settings.userName}
-                timeoutMs={settings.scriptTimeoutMs}
+                userName={userName}
+                timeoutMs={scriptTimeoutMs}
                 minHeight={260}
               />
             </div>
@@ -395,7 +403,7 @@ export function CharacterDrawer() {
         workflow={draft.workflow}
         character={draft}
         messages={messages}
-        userName={settings.userName}
+        userName={userName}
         onClose={() => setWorkflowOpen(false)}
         onChange={(workflow) => patch({ workflow })}
       />
