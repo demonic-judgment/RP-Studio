@@ -49,9 +49,11 @@ export function CharacterDrawer() {
   }, [open, character?.id, character?.updatedAt]);
 
   const dirty = useMemo(() => {
-    if (!draft || !character) return false;
+    // 抽屉关着时不用比：草稿里带着整份工作流与上下文块，
+    // 每次消息 / 设置变化都 stringify 两遍是白算。
+    if (!open || !draft || !character) return false;
     return JSON.stringify(draft) !== JSON.stringify(character);
-  }, [draft, character]);
+  }, [open, draft, character]);
 
   if (!draft) return null;
 

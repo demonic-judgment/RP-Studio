@@ -80,6 +80,8 @@ interface Store {
   regenerate: (messageId: string) => Promise<void>;
   /** 在同一条消息的历史版本之间切换（0 为最早一版） */
   switchVariant: (messageId: string, index: number) => Promise<void>;
+  /** 以这条消息为终点，把当前会话复制成一个新会话，之后在这里继续聊 */
+  branchConversation: (messageId: string) => Promise<void>;
   editMessage: (messageId: string, content: string) => Promise<void>;
   removeMessage: (messageId: string) => Promise<void>;
   stop: () => void;
@@ -125,6 +127,16 @@ async function createSessionFor(character: Character, userName: string) {
   return session;
 }
 
+/**
+ * 分支会话的标题：从原会话标题派生，不再叠加「分支 · 分支 ·」，
+ * 太长时截断 —— 抽屉里本来就一行放不下。
+ */
+function branchTitle(title?: string) {
+  const base = (title ?? "").trim().replace(/^分支 · /, "") || "新会话";
+  const text = `分支 · ${base}`;
+  return text.length > 42 ? `${text.slice(0, 42)}…` : text;
+}
+
 export const useStore = create<Store>((set, get) => ({
   ready: false,
   initError: null,
@@ -147,10 +159,14 @@ export const useStore = create<Store>((set, get) => ({
       await initDb();
       // 尽量申请持久化存储，降低浏览器清理 IndexedDB 的概率
       void navigator.storage?.persist?.();
-      const saved = (await repo.loadSettings()) as { app?: Partial<AppSettings> };
+      // 两组查询互不依赖，一起发：启动时 PGlite 每次往返都要等一轮
+      const [saved, initialCharacters] = await Promise.all([
+        repo.loadSettings() as Promise<{ app?: Partial<AppSettings> }>,
+        repo.listCharacters(),
+      ]);
       const settings: AppSettings = normalizeSettings(saved.app ?? {});
 
-      let characters = await repo.listCharacters();
+      let characters = initialCharacters;
       if (characters.length === 0) {
         for (const seed of SEED_CHARACTERS) {
           await repo.createCharacter(seed);
@@ -176,9 +192,14 @@ export const useStore = create<Store>((set, get) => ({
   },
 
   setSettings: async (patch, options) => {
-    const settings = { ...get().settings, ...patch };
+    const prev = get().settings;
+    const settings = { ...prev, ...patch };
     set({ settings });
-    applyTheme(settings.theme, settings.accent);
+    // 只有主题 / 强调色真的变了才重刷 CSS 变量：
+    // 在设置里打一个字也走这里，整页样式失效一次不划算
+    if (settings.theme !== prev.theme || settings.accent !== prev.accent) {
+      applyTheme(settings.theme, settings.accent);
+    }
     if (options?.persist === false) return;
     await repo.saveSetting("app", settings);
   },
@@ -334,6 +355,36 @@ export const useStore = create<Store>((set, get) => ({
     });
   },
 
+  branchConversation: async (messageId) => {
+    const state = get();
+    const { activeSessionId, activeCharacterId } = state;
+    if (!activeSessionId || !activeCharacterId || state.stream.running) return;
+
+    const all = await repo.listMessages(activeSessionId);
+    const index = all.findIndex((m) => m.id === messageId);
+    if (index < 0) return;
+
+    const source = state.sessions.find((s) => s.id === activeSessionId);
+    const session = await repo.branchSession({
+      characterId: activeCharacterId,
+      title: branchTitle(source?.title),
+      // 只带走到这条消息为止的部分：后面的内容留在原会话里
+      messages: all.slice(0, index + 1),
+    });
+
+    set({
+      sessions: await repo.listSessions(activeCharacterId),
+      activeSessionId: session.id,
+      messages: await repo.listMessages(session.id),
+      drawer: null,
+    });
+    get().toast({
+      title: "已创建分支对话",
+      description: "从这里接着聊，原会话不会受影响",
+      variant: "success",
+    });
+  },
+
   send: async (text) => {
     const state = get();
     const content = text.trim();
@@ -476,7 +527,7 @@ export const useStore = create<Store>((set, get) => ({
       const variants = carry
         ? [...carry.variants, { content, createdAt: nowIso(), status }]
         : undefined;
-      await repo.appendMessage({
+      const saved = await repo.appendMessage({
         sessionId: activeSessionId,
         role: "assistant",
         content,
@@ -485,8 +536,14 @@ export const useStore = create<Store>((set, get) => ({
         createdAt: carry?.createdAt,
         meta: variants ? { ...meta, variants, variantIndex: variants.length - 1 } : meta,
       });
+      // 直接把写入结果并进内存，不再整表重读一遍：
+      // 长会话里每次回复都 select 全量消息 + 反序列化 meta，纯属白干
+      const prev = get().messages;
+      const messages = prev.some((m) => m.id === saved.id)
+        ? prev.map((m) => (m.id === saved.id ? saved : m))
+        : [...prev, saved];
       set({
-        messages: await repo.listMessages(activeSessionId),
+        messages,
         stream: emptyStream,
         sessions: await repo.listSessions(activeCharacterId),
       });

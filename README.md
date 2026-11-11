@@ -77,7 +77,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | --- | --- | --- | --- |
 | React `^19.3.1` + react-dom | `src/main.tsx` | `StrictMode` + `createRoot` | — |
 | TypeScript `^7.0.2` | `tsconfig.json` | ES2022 / `moduleResolution: bundler` / `strict` / `noUnused*` | `lib` 必须含 `WebWorker`（`script-worker.ts`），`types` 必须含 `node`（`vite.config.ts` 用 `node:url`） |
-| Vite `^8.3.6` + `@vitejs/plugin-react` `^6.2.1` | `vite.config.ts` | 开发服务器 5173、`build.target: es2022` | **`optimizeDeps.exclude: ["@electric-sql/pglite"]`**：PGlite 用 `new URL("...wasm", import.meta.url)` 定位资源，进预构建会路径错乱 |
+| Vite `^8.3.6` + `@vitejs/plugin-react` `^6.2.1` | `vite.config.ts` | 开发服务器 5173、`build.target: es2022`、`manualChunks` 拆 vendor | **`optimizeDeps.exclude: ["@electric-sql/pglite"]`**：PGlite 用 `new URL("...wasm", import.meta.url)` 定位资源，进预构建会路径错乱；`modulePreload: false` 关掉预加载助手，否则它会跟着动态 chunk 一起被静态引入，PGlite 又退回同步加载；PGlite 在 `manualChunks` 里必须 `return`（交给 Vite 自己切），落进 `vendor` 兜底就等于把它焊进首屏 |
 | Tailwind CSS `^4.3.5` + `@tailwindcss/vite` | `vite.config.ts`、`src/index.css` | 无 config 文件，全部靠 `@theme inline` | 见 S1；`@/*` 别名在 Vite 与 `components.json` 两处都要一致 |
 | shadcn CLI `^4.23.0`（dev） | `components.json` | `new-york` / Tailwind v4 / `cssVariables: true` / `tailwind.config: ""` | 已初始化完毕，**不要再跑 `shadcn init`**，会覆盖主题变量；只用 `pnpm exec shadcn add <组件>` |
 | wrangler `^4.158.0`（dev） | `wrangler.jsonc` | `assets.directory: ./dist` + `not_found_handling: single-page-application` | `run_worker_first: false`，纯静态，无 Worker 代码 |
@@ -86,7 +86,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 
 | 技术 / 版本 | 入口文件 | 职责 | 关键决策 |
 | --- | --- | --- | --- |
-| `@electric-sql/pglite` `^0.5.15` | `src/lib/db.ts` | `new PGlite("idb://rp-studio")`、`waitReady` | `getDb()` 单例 + `readyPromise` 去重；`MIGRATIONS` 逐条在 `db.transaction` 内执行并写 `schema_meta.version`；`resetDatabase()` drop 全部表后重建 |
+| `@electric-sql/pglite` `^0.5.15` | `src/lib/db.ts` | `new PGlite("idb://rp-studio")`、`waitReady` | **动态 `import()`**：它的 JS 有 488KB，静态引入会压住首屏；`getDb()` 单例（未初始化直接抛错）、`readyPromise` 去重；`MIGRATIONS` 逐条在 `db.transaction` 内执行并写 `schema_meta.version`；`resetDatabase()` drop 全部表后重建 |
 | 原生 SQL / jsonb | `src/lib/repo.ts` | 角色 / 会话 / 消息 / 设置 CRUD、导入导出、统计 | 行映射统一处理 `snake_case → camelCase` 与 `Date → ISO`；`jsonb` 一律 `JSON.stringify` + `::jsonb` 强转；`listSessions` 用子查询算 `message_count` 并 `pinned desc, updated_at desc` 排序；`importAll` 在单事务内先清四表再回灌 |
 | `zustand` `^5.1.0` | `src/lib/store.ts` | 全局状态与全部 action | 模块级 `initStarted` 防重复初始化、`abortController` 支持停止生成；`navigator.storage.persist()` 申请持久化；流式只在内存累积，结束才落库 |
 | `src/lib/types.ts` | — | 领域类型单一事实来源 | `ChatMessage`（只有 role/content）与 `Message`（DB 行，含 status/meta）严格区分 |
@@ -127,6 +127,21 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 兜底 | `src/components/ErrorBoundary.tsx` | class 组件 `getDerivedStateFromError` |
 | 主页背景 | `src/components/home/Backdrop.tsx`、`src/components/drawers/BackgroundSettings.tsx`、`src/lib/image.ts` | 背景层固定 `-z-10` 且 `aria-hidden`；层次是「底色 → 自定义图 → 强调色光斑 → 网格」，设了图就把上面几层压淡；内容列同步切成高斯模糊遮罩（`App.tsx`：`backdrop-blur-xl` + `bg-surface/45` + `backdrop-saturate-150`），列两侧不描线；`ChatHeader` 不画分割线，用 `shadow-header` 那道贴边弱投影分隔；上传的图片在浏览器里缩到长边 2560 再转 WebP（几百 KB 的 data URL 直接进 `settings.app.background`），动图 / SVG 原样保留；拖滑杆只在内存改，停手 320ms 才落库 |
 | 图标 | `lucide-react` `^1.70.0` | 全局图标来源 |
+
+### 2.6 性能约定（流式热路径）
+
+> 一帧一帧写正文是这个应用最贵的地方。下面这些是实测后定下来的边界，改消息区或输入区之前先看一遍，别把重渲染面又放大。
+
+| 位置 | 规则 | 为什么 |
+| --- | --- | --- |
+| `stream` 订阅 | 只订布尔值（`stream.running && stream.sessionId === activeSessionId`），**不要** `useStore((s) => s.stream)` | 每个 SSE chunk 都会换 `stream` 引用，订整对象等于让顶栏、输入层、整列消息跟着每个 chunk 重渲染 |
+| 正在写入的那条 | 单独 `StreamingBubble` 订阅 `buffer` / `logs` / `startedAt` | chunk 级重渲染被关进一个子树，外面完全不动 |
+| `useSmoothText` | 追平立刻停掉 rAF，`text` 变长再启动 | 模型停顿的那几百毫秒里没有新字可揭，空转只会白烧 60 帧/秒 |
+| `MessageItem` / `MessageActivity` / `MessageList` / `ChatHeader` | 全部 `memo`，传进去的回调用 `useCallback` | 打字时 `ChatView` 每键都重渲染；memo 边界一旦被内联箭头打破，整列消息会跟着每个字符走一遍 |
+| `Markdown` | `normalizeParagraphs` → `splitMarkdownBlocks` → 只解析尾块 | 6k 字整段重解析约 1.5ms/帧，按块缓存后尾块约 0.1ms（归一 0.095ms + 切块 0.047ms） |
+| 落库后回写 | `finish()` 用 `appendMessage` 的返回值并进内存 | 长会话不必每次回复都 `select * from messages` 全量重读 + 反序列化 `meta` |
+| 上下文估算 | 输入框用 `useDeferredValue` 喂 `assembleContext` | 装配要扫全部历史，按键触发的高频重算会和输入争同一帧 |
+| `setSettings` | 主题 / 强调色没变就不调 `applyTheme` | 设置里每敲一个字都会走这里，重刷 CSS 变量等于整页样式失效 |
 
 ---
 
@@ -433,7 +448,7 @@ pnpm dlx shadcn@latest add tooltip
 
 **已知限制**
 
-- PGlite 运行在主线程，数万条消息的查询会有短暂卡顿；单用户本地库，未做分页虚拟列表。
+- PGlite 运行在主线程，数万条消息的查询会有短暂卡顿；消息列表**不做虚拟滚动**，一次渲染整条会话，几百条以上时首屏与滚动会明显变重（流式热路径本身已按 §2.6 收敛，瓶颈在 DOM 数量而不是重渲染）。
 - 同一浏览器的多个标签页共用一个 IndexedDB，极端并发写入可能互相覆盖（无 BroadcastChannel 同步）。
 - API Key 明文存在本地 IndexedDB；跨域调用依赖模型服务商的 CORS 支持。
 - 工作流是「可编排的有向图 + 顺序 DFS 遍历」，不是图灵完备调度器；无重试 / 定时 / 并行节点。

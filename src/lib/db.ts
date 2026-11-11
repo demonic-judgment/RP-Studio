@@ -1,17 +1,27 @@
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 /**
  * 浏览器内 Postgres：数据目录走 IndexedDB，刷新不丢。
  * 首次加载需要下载 WASM，约 3MB。
+ *
+ * 这里用动态 import 拿下 PGlite：它的 JS 构建出来有 480KB 左右，静态引入会让主包
+ * 在解析完之后才能吐出首屏。改成懒加载后，React 外壳和启动动画先画出来，
+ * 数据库在后台加载，用户看到的是「正在启动本地数据库」而不是白屏。
  */
+type PGliteCtor = typeof import("@electric-sql/pglite").PGlite;
+
 let instance: PGlite | null = null;
 let readyPromise: Promise<PGlite> | null = null;
 
+/** 只能在 initDb() 之后调用；之前的数据库调用都是 bug，直接报出来 */
 export function getDb(): PGlite {
-  if (!instance) {
-    instance = new PGlite("idb://rp-studio");
-  }
+  if (!instance) throw new Error("数据库尚未初始化");
   return instance;
+}
+
+async function createDb(): Promise<PGlite> {
+  const { PGlite: Ctor } = (await import("@electric-sql/pglite")) as { PGlite: PGliteCtor };
+  return new Ctor("idb://rp-studio");
 }
 
 const MIGRATIONS: { version: number; sql: string }[] = [
@@ -71,7 +81,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
 export async function initDb(): Promise<PGlite> {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
-    const db = getDb();
+    const db = instance ?? (instance = await createDb());
     await db.waitReady;
     await db.exec(`
       create table if not exists schema_meta (

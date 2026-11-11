@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
 /** 与官网演示一致：每秒推进 96 个字符 */
@@ -20,6 +20,9 @@ interface SmoothTextOptions {
  *
  * 直接用网络缓冲渲染时，一帧可能吞进一整句，视觉上是一跳一跳的；这里维持一个
  * 浮点游标，每帧按 charsPerSecond 前进，落后太多就按比例加速，保证既不跳字也不拖尾。
+ *
+ * 追平之后不再往 rAF 里挂号：模型停顿的那几百毫秒里没有新字要揭，
+ * 空转的帧只会白白让这条消息重渲染 60 次/秒。下一段文字到达时再启动。
  */
 export function useSmoothText(text: string, options: SmoothTextOptions = {}): string {
   const { enabled = true, charsPerSecond = DEFAULT_CPS } = options;
@@ -30,6 +33,47 @@ export function useSmoothText(text: string, options: SmoothTextOptions = {}): st
   const textRef = useRef(text);
   const positionRef = useRef(animate ? 0 : text.length);
   const shownRef = useRef(animate ? 0 : text.length);
+  const frameRef = useRef(0);
+  const lastRef = useRef(0);
+  const speedRef = useRef(charsPerSecond);
+  speedRef.current = charsPerSecond;
+
+  const pump = useCallback(() => {
+    frameRef.current = 0;
+    const target = textRef.current;
+    const backlog = target.length - positionRef.current;
+    // 追上了就退出循环，等 text 变长时由下面的 effect 重新启动
+    if (backlog <= 0) return;
+
+    const now = performance.now();
+    const dt = Math.min(64, now - lastRef.current) / 1000;
+    lastRef.current = now;
+
+    const speed = speedRef.current * Math.min(MAX_MULTIPLIER, Math.max(1, backlog / CATCH_UP_AT));
+    positionRef.current = Math.min(target.length, positionRef.current + speed * dt);
+
+    let next = Math.floor(positionRef.current);
+    // 别把 emoji 之类的代理对劈成两半
+    if (next > 0 && next < target.length) {
+      const code = target.charCodeAt(next - 1);
+      if (code >= 0xdc00 && code <= 0xdfff) next -= 1;
+    }
+
+    if (next !== shownRef.current) {
+      shownRef.current = next;
+      setVisible(next);
+    }
+
+    if (positionRef.current < target.length) {
+      frameRef.current = requestAnimationFrame(pump);
+    }
+  }, []);
+
+  const start = useCallback(() => {
+    if (frameRef.current || positionRef.current >= textRef.current.length) return;
+    lastRef.current = performance.now();
+    frameRef.current = requestAnimationFrame(pump);
+  }, [pump]);
 
   useEffect(() => {
     textRef.current = text;
@@ -49,43 +93,17 @@ export function useSmoothText(text: string, options: SmoothTextOptions = {}): st
       shownRef.current = text.length;
       setVisible(text.length);
     }
-  }, [text, animate]);
 
-  useEffect(() => {
-    if (!animate) return;
+    start();
+  }, [text, animate, start]);
 
-    let frame = 0;
-    let last = performance.now();
-
-    const tick = (now: number) => {
-      const dt = Math.min(64, now - last) / 1000;
-      last = now;
-
-      const target = textRef.current;
-      if (positionRef.current < target.length) {
-        const backlog = target.length - positionRef.current;
-        const speed = charsPerSecond * Math.min(MAX_MULTIPLIER, Math.max(1, backlog / CATCH_UP_AT));
-        positionRef.current = Math.min(target.length, positionRef.current + speed * dt);
-
-        let next = Math.floor(positionRef.current);
-        // 别把 emoji 之类的代理对劈成两半
-        if (next > 0 && next < target.length) {
-          const code = target.charCodeAt(next - 1);
-          if (code >= 0xdc00 && code <= 0xdfff) next -= 1;
-        }
-
-        if (next !== shownRef.current) {
-          shownRef.current = next;
-          setVisible(next);
-        }
-      }
-
-      frame = requestAnimationFrame(tick);
-    };
-
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [animate, charsPerSecond]);
+  useEffect(
+    () => () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+    },
+    [],
+  );
 
   return animate ? text.slice(0, visible) : text;
 }

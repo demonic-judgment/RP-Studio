@@ -1,9 +1,10 @@
+import { memo } from "react";
 import { Plus, Settings2 } from "lucide-react";
 import type { Character, Session } from "../../lib/types";
 import { IconButton } from "../ui/Button";
 import { Pill } from "../ui/Tabs";
 
-export function ChatHeader({
+export const ChatHeader = memo(function ChatHeader({
   character,
   session,
   onOpenLeft,
@@ -67,4 +68,4 @@ export function ChatHeader({
       </div>
     </header>
   );
-}
+});

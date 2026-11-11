@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
   AgentActivity,
   agentActivityMessages,
@@ -54,7 +54,7 @@ function formatElapsed(seconds: number) {
  * 等模型开始返回 reasoning_content（MessageMeta.reasoning）时，
  * 这里会自动切回「正在思考 → 正在回复」，并把推理文本作为一条 text 项折叠进来。
  */
-export function MessageActivity({
+export const MessageActivity = memo(function MessageActivity({
   message,
   running = false,
   startedAt,
@@ -118,4 +118,4 @@ export function MessageActivity({
       className="mb-1"
     />
   );
-}
+});

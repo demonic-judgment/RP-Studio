@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useMemo, useRef } from "react";
+import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import { Sparkles } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { Character } from "../../lib/types";
@@ -57,20 +57,24 @@ export function Composer({
     [settings.models],
   );
 
+  // 上下文装配要扫一遍全部历史，打完一个字就重算会让长会话里的输入发涩。
+  // 用降级值兜住：正文照常即时上屏，token 估算晚一帧跟上。
+  const deferredValue = useDeferredValue(value);
+
   const tokens = useMemo(() => {
-    if (!settings.showTokenEstimate || !value.trim()) return 0;
+    if (!settings.showTokenEstimate || !deferredValue.trim()) return 0;
     try {
       const assembled = assembleContext({
         character,
         history: messages,
-        input: value,
+        input: deferredValue,
         userName: settings.userName,
       });
       return assembled.tokens;
     } catch {
-      return estimateTokens(value);
+      return estimateTokens(deferredValue);
     }
-  }, [character, messages, settings.showTokenEstimate, settings.userName, value]);
+  }, [character, messages, settings.showTokenEstimate, settings.userName, deferredValue]);
 
   const insertPhrase = (content: string) => {
     onChange(value.trim() ? `${value.trim()}\n${content}` : content);

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { Character, Message } from "../../lib/types";
 import { MessageItem } from "./MessageItem";
 
-export function MessageList({
+export const MessageList = memo(function MessageList({
   character,
   onQuickPhrase,
   bottomInset = 140,
@@ -16,12 +16,14 @@ export function MessageList({
   bottomInset?: number;
 }) {
   const messages = useStore((s) => s.messages);
-  const stream = useStore((s) => s.stream);
+  // 只订阅布尔：整份 stream 每个 chunk 都换引用，订它等于让整个列表按 chunk 重渲染
+  const streaming = useStore((s) => s.stream.running && s.stream.sessionId === s.activeSessionId);
   const activeSessionId = useStore((s) => s.activeSessionId);
   const editMessage = useStore((s) => s.editMessage);
   const regenerate = useStore((s) => s.regenerate);
   const removeMessage = useStore((s) => s.removeMessage);
   const switchVariant = useStore((s) => s.switchVariant);
+  const branchConversation = useStore((s) => s.branchConversation);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -33,8 +35,6 @@ export function MessageList({
     atBottomRef.current = atBottom;
   }, [atBottom]);
 
-  const streaming = stream.running && stream.sessionId === activeSessionId;
-  const streamText = stream.buffer;
   // 用 mask 让消息在悬浮输入层上缘自然淡出（不再叠一层不透明色带），
   // 因此底部只需预留 淡出高度 + 呼吸间距。淡出带收窄到 32px，
   // 只够把最后一行溶进输入层，不会在它上方吃掉一整段可读区域。
@@ -53,7 +53,9 @@ export function MessageList({
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     }
-  }, [messages.length, streamText, atBottom, streaming, reserved]);
+    // 不再依赖流式正文：正文是逐帧长高的，React 侧的 chunk 更新滞后于实际高度，
+    // 贴底交给下面的 ResizeObserver 更准，也少一次每 chunk 的强制布局。
+  }, [messages.length, atBottom, streaming, reserved]);
 
   // 打字机是逐帧长高的，store 里的 buffer 却按 chunk 更新；
   // 直接盯内容高度，停在底部时才跟，避免每帧滚动都要等一次 React 重渲染。
@@ -88,16 +90,6 @@ export function MessageList({
     setAtBottom(false);
   };
 
-  const virtualMessage: Message = {
-    id: "streaming-virtual",
-    sessionId: activeSessionId ?? "",
-    role: "assistant",
-    content: streamText,
-    status: "streaming",
-    meta: { viaWorkflow: stream.mode === "workflow" },
-    createdAt: new Date().toISOString(),
-  };
-
   return (
     <div className="relative min-h-0 flex-1">
       {/* 遮罩放在滚动容器外的包裹层：遮罩框不随滚动位移，也避开 iOS 上「遮罩 + overflow」的历史问题 */}
@@ -126,24 +118,13 @@ export function MessageList({
                   onRegenerate={regenerate}
                   onDelete={removeMessage}
                   onSwitchVariant={switchVariant}
+                  onBranch={branchConversation}
                   disabled={streaming}
                 />
               ))
             )}
 
-            {streaming && (
-              <MessageItem
-                message={virtualMessage}
-                name={character.name}
-                avatar={character.avatar}
-                streaming
-                live={{ startedAt: stream.startedAt, logs: stream.logs }}
-                onEdit={() => {}}
-                onRegenerate={() => {}}
-                onDelete={() => {}}
-                onSwitchVariant={() => {}}
-              />
-            )}
+            {streaming && <StreamingBubble character={character} />}
 
             <div ref={bottomRef} className="h-2" />
           </div>
@@ -169,6 +150,52 @@ export function MessageList({
         )}
       </AnimatePresence>
     </div>
+  );
+});
+
+const noop = () => {};
+
+/**
+ * 正在写入的那一条。store 里的 buffer 每个 chunk 都会换引用，
+ * 把它单独关在这里订阅，外面的列表、顶栏、输入层就不用跟着每个 chunk 重渲染。
+ */
+function StreamingBubble({ character }: { character: Character }) {
+  const buffer = useStore((s) => s.stream.buffer);
+  const logs = useStore((s) => s.stream.logs);
+  const startedAt = useStore((s) => s.stream.startedAt);
+  const mode = useStore((s) => s.stream.mode);
+  const sessionId = useStore((s) => s.activeSessionId);
+  // 时间戳只取一次：每条 chunk 都 new Date() 会让 message 对象白白换引用
+  const createdAtRef = useRef(new Date().toISOString());
+
+  const message = useMemo<Message>(
+    () => ({
+      id: "streaming-virtual",
+      sessionId: sessionId ?? "",
+      role: "assistant",
+      content: buffer,
+      status: "streaming",
+      meta: { viaWorkflow: mode === "workflow" },
+      createdAt: createdAtRef.current,
+    }),
+    [buffer, mode, sessionId],
+  );
+
+  const live = useMemo(() => ({ startedAt, logs }), [startedAt, logs]);
+
+  return (
+    <MessageItem
+      message={message}
+      name={character.name}
+      avatar={character.avatar}
+      streaming
+      live={live}
+      onEdit={noop}
+      onRegenerate={noop}
+      onDelete={noop}
+      onSwitchVariant={noop}
+      onBranch={noop}
+    />
   );
 }
 

@@ -245,6 +245,52 @@ export async function deleteSession(id: string): Promise<void> {
   await getDb().query("delete from sessions where id = $1", [id]);
 }
 
+/**
+ * 分支对话：用一段现有消息搭一个新会话。
+ *
+ * 消息要换新 id 再插一遍 —— messages.id 是全局主键，直接搬会撞原会话那些行；
+ * created_at 顺延成严格递增的，否则同一毫秒内的两条在 `order by created_at, id`
+ * 下会按随机 id 重排，分支里的对话顺序就跟原会话对不上了。
+ */
+export async function branchSession(input: {
+  characterId: string;
+  title: string;
+  messages: Message[];
+}): Promise<Session> {
+  const db = getDb();
+  const sessionId = uid();
+  const ts = nowIso();
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.query<SessionRow>(
+      `insert into sessions (id, character_id, title, created_at, updated_at)
+       values ($1,$2,$3,$4,$4) returning *`,
+      [sessionId, input.characterId, input.title, ts],
+    );
+    let last = 0;
+    for (const m of input.messages) {
+      const parsed = Date.parse(m.createdAt);
+      let stamp = Number.isFinite(parsed) ? parsed : last || Date.now();
+      if (stamp <= last) stamp = last + 1;
+      last = stamp;
+      await tx.query(
+        `insert into messages (id, session_id, role, content, status, meta, created_at)
+         values ($1,$2,$3,$4,$5,$6::jsonb,$7)`,
+        [
+          uid(),
+          sessionId,
+          m.role,
+          m.content,
+          // 半截的流式消息带不进分支，按「已停止」的成品存下来
+          m.status === "streaming" ? "stopped" : m.status,
+          JSON.stringify(m.meta ?? {}),
+          new Date(stamp).toISOString(),
+        ],
+      );
+    }
+    return mapSession(rows[0]);
+  });
+}
+
 /* --------------------------------- messages ------------------------------- */
 
 export async function listMessages(sessionId: string): Promise<Message[]> {

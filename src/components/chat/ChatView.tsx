@@ -11,7 +11,9 @@ export function ChatView() {
   const activeCharacterId = useStore((s) => s.activeCharacterId);
   const sessions = useStore((s) => s.sessions);
   const activeSessionId = useStore((s) => s.activeSessionId);
-  const stream = useStore((s) => s.stream);
+  // 只订阅「这条会话是否正在生成」这个布尔值：整份 stream 对象每个 chunk 都会换引用，
+  // 订了它会让顶部栏、输入层跟着每个 chunk 重渲染一遍。
+  const streaming = useStore((s) => s.stream.running && s.stream.sessionId === s.activeSessionId);
   const openDrawer = useStore((s) => s.openDrawer);
   const newSession = useStore((s) => s.newSession);
   const createCharacter = useStore((s) => s.createCharacter);
@@ -21,10 +23,15 @@ export function ChatView() {
   const [draft, setDraft] = useState("");
   const [composerHeight, setComposerHeight] = useState(140);
   const handleComposerHeight = useCallback((height: number) => setComposerHeight(height), []);
+  // 快捷语回填只在点的时候用，引用必须稳定：打字时 ChatView 每键都重渲染，
+  // 内联箭头会让 MessageList 的 memo 失效，整列消息跟着每个字符走一遍。
+  const handleQuickPhrase = useCallback((text: string) => setDraft(text), []);
+  const handleOpenLeft = useCallback(() => openDrawer("left"), [openDrawer]);
+  const handleOpenSettings = useCallback(() => openDrawer("settings"), [openDrawer]);
+  const handleNewSession = useCallback(() => void newSession(), [newSession]);
 
   const character = characters.find((c) => c.id === activeCharacterId) ?? null;
   const session = sessions.find((s) => s.id === activeSessionId) ?? null;
-  const streaming = stream.running && stream.sessionId === activeSessionId;
 
   useEffect(() => {
     setDraft("");
@@ -52,16 +59,16 @@ export function ChatView() {
       <ChatHeader
         character={character}
         session={session}
-        onOpenLeft={() => openDrawer("left")}
-        onOpenSettings={() => openDrawer("settings")}
-        onNewSession={() => void newSession()}
+        onOpenLeft={handleOpenLeft}
+        onOpenSettings={handleOpenSettings}
+        onNewSession={handleNewSession}
       />
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         <MessageList
           character={character}
           bottomInset={composerHeight}
-          onQuickPhrase={(text) => setDraft(text)}
+          onQuickPhrase={handleQuickPhrase}
         />
         <Composer
           character={character}

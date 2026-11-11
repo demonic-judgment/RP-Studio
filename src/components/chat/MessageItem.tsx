@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { Check, ChevronLeft, ChevronRight, Copy, Pencil, Trash2, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Copy, GitBranch, Pencil, Trash2, X } from "lucide-react";
 import type { Message } from "../../lib/types";
 import { copyText, formatTime } from "../../lib/utils";
 import { useSmoothText } from "../../lib/hooks/use-smooth-text";
@@ -36,6 +36,8 @@ interface MessageItemProps {
   onDelete: (messageId: string) => void;
   /** 在重新生成留下的历史版本之间切换 */
   onSwitchVariant: (messageId: string, index: number) => void;
+  /** 以这条消息为终点复制出一个新会话（分支对话） */
+  onBranch: (messageId: string) => void;
   disabled?: boolean;
 }
 
@@ -49,6 +51,7 @@ function MessageItemBase({
   onRegenerate,
   onDelete,
   onSwitchVariant,
+  onBranch,
   disabled,
 }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
@@ -56,10 +59,8 @@ function MessageItemBase({
   const [draft, setDraft] = useState(message.content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    if (!editing) setDraft(message.content);
-  }, [message.content, editing]);
-
+  // 进入编辑时才把当前正文灌进草稿；流式期间 content 每个 chunk 都在变，
+  // 跟着同步等于每收到一段就多一次 setState，而草稿这时根本没人看。
   useEffect(() => {
     if (editing) {
       const el = textareaRef.current;
@@ -91,7 +92,7 @@ function MessageItemBase({
   const variants = message.meta.variants ?? [];
   const variantIndex = message.meta.variantIndex ?? Math.max(0, variants.length - 1);
 
-  // 用户气泡的操作条：复制 / 编辑重发 / 删除。角色的操作条由回复面自己渲染。
+  // 用户气泡的操作条：复制 / 编辑重发 / 分支 / 删除。角色的操作条由回复面自己渲染。
   const userActions = (
     <div className="flex items-center gap-0.5 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100">
       <IconButton label={copied ? "已复制" : "复制"} onClick={handleCopy} className="h-7 w-7">
@@ -100,10 +101,21 @@ function MessageItemBase({
       <IconButton
         label="编辑并重新生成"
         className="h-7 w-7"
-        onClick={() => setEditing(true)}
+        onClick={() => {
+          setDraft(message.content);
+          setEditing(true);
+        }}
         disabled={disabled}
       >
         <Pencil size={13} />
+      </IconButton>
+      <IconButton
+        label="创建分支对话"
+        className="h-7 w-7"
+        onClick={() => onBranch(message.id)}
+        disabled={disabled || streaming}
+      >
+        <GitBranch size={13} />
       </IconButton>
       <IconButton
         label="删除"
@@ -226,6 +238,14 @@ function MessageItemBase({
           announce={false}
           extraActions={
             <>
+              <IconButton
+                label="创建分支对话"
+                className="h-7 w-7"
+                onClick={() => onBranch(message.id)}
+                disabled={disabled || streaming}
+              >
+                <GitBranch size={13} />
+              </IconButton>
               <IconButton
                 label="删除"
                 className="h-7 w-7 hover:text-danger"
