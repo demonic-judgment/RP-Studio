@@ -161,7 +161,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 ```text
 RP-Studio/
 ├─ README.md                    # 技术栈索引 / 规范 / 界面设计描述
-├─ index.html                   # 首屏主题恢复，避免闪烁
+├─ index.html                   # 首屏主题恢复 + 旧版本资源加载失败时的自救重载
 ├─ package.json
 ├─ vite.config.ts               # React + Tailwind v4；@ 别名；PGlite 排除预构建
 ├─ components.json              # shadcn CLI 配置（new-york / Tailwind v4）
@@ -170,6 +170,7 @@ RP-Studio/
 ├─ pnpm-workspace.yaml          # packages: ["."] + 构建脚本放行（兼容 pnpm 10 / 12）
 ├─ .npmrc                       # 国内 npm 镜像
 ├─ public/favicon.svg
+├─ public/_headers              # Workers 响应头：HTML no-cache / 哈希资源 immutable
 ├─ docs/                        # 界面截图
 └─ src/
    ├─ main.tsx                  # 入口：并行启动 DB + 挂载 App（App 内有启动/错误态）
@@ -450,6 +451,21 @@ pnpm deploy      # vite build && wrangler deploy（先 wrangler login）
 ```
 
 正确的日志顺序是先出现 `Executing user build command: pnpm build`（`vite build` 的产物清单），再出现 `Executing user deploy command: npx wrangler deploy`。若只想在后台填一条命令，Deploy command 可改用 `pnpm deploy`（脚本内部已含 `vite build`），但分两条配更容易从日志里分清是哪一步炸的。
+
+### 部署后的缓存与版本错位
+
+`public/_headers` 钉死三类缓存策略（构建时随 `public/` 一起拷进 `dist/`，由 Workers 在响应静态资源时套用）：`/assets/*` 文件名带内容哈希，给 `max-age=31536000, immutable`；`/` 与 `/index.html` 给 `no-cache`，每次回源校验；其余沿用 Workers 默认的 `public, max-age=0, must-revalidate`。
+
+不显式钉住就会撞上「重新部署后整页空白」：浏览器缓存着上一版的 `index.html`，它引用的 `/assets/index-<旧 hash>.js` 已经被新部署删掉，模块加载 404，React 挂不上去，控制台只有一条 `Failed to load module script`。**SPA 回退返回的 index.html 不带 ETag / Cache-Control**，浏览器会按启发式规则自己决定存多久，所以不能指望默认行为兜住。手动清一次站点缓存也能恢复，但要每个访客都去清就不成立了。
+
+页面另有一层自救：`index.html` 在捕获阶段监听脚本元素上的 `error`，入口模块加载失败时带 `?v=<随机>` 重载一次 —— query 变了就是新的缓存键，直接绕开浏览器里的旧 HTML；这次能跑起来的话，`main.tsx` 会清掉 `sessionStorage` 标记（同一会话只重载一次，避免资源真缺时无限刷新）并把临时参数从地址栏抹掉。
+
+核对线上响应头：
+
+```bash
+curl -sI https://rp-studio.<子域>.workers.dev/ | grep -i cache-control   # 应为 no-cache
+curl -sI https://rp-studio.<子域>.workers.dev/assets/index-<hash>.js | grep -i cache-control
+```
 
 ### 追加 shadcn/ui 组件
 

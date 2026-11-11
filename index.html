@@ -18,6 +18,30 @@
         if (a) document.documentElement.dataset.accent = a;
       } catch (e) {}
     </script>
+    <script>
+      // 部署新版本后，浏览器里的旧 index.html 会去请求已经被删掉的旧 chunk：
+      // 模块 404 或 MIME 不对，React 永远挂不上，整页空白。
+      // 这里在入口脚本加载失败时带一个随机 query 重载一次 —— query 变了就是新的
+      // 缓存键，能绕开浏览器里的旧 HTML。成功后由 main.tsx 清掉这个标记。
+      (function () {
+        var KEY = "rp.asset-reload";
+        window.addEventListener(
+          "error",
+          function (e) {
+            var t = e.target;
+            if (!t || t.tagName !== "SCRIPT" || !t.src) return;
+            try {
+              if (sessionStorage.getItem(KEY)) return;
+              sessionStorage.setItem(KEY, "1");
+            } catch (_) {}
+            var u = new URL(location.href);
+            u.searchParams.set("v", Date.now().toString(36));
+            location.replace(u.toString());
+          },
+          true,
+        );
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
