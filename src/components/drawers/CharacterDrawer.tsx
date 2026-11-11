@@ -183,33 +183,23 @@ export function CharacterDrawer() {
                 />
               </Field>
 
-              <div className="rounded-2xl bg-surface-2 p-inset-sm">
-                <div className="mb-2 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[12.5px] font-medium text-fg">初始消息</p>
-                    <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-                      新建会话时自动写入的第一条角色消息，可直接开始对话。
-                    </p>
-                  </div>
-                  <span className="shrink-0 rounded-full bg-surface px-inset-pill py-1 text-[10.5px] tabular-nums text-fg-subtle">
-                    {draft.greeting.trim().length} 字
-                  </span>
-                </div>
-                <Textarea
-                  value={draft.greeting}
-                  onChange={(e) => patch({ greeting: e.target.value })}
-                  className="min-h-[116px] bg-surface text-[12.5px] leading-relaxed"
-                  placeholder={"（她抬眼，把伞往你那边偏了偏。）\n\n「这么大的雨，站这儿等人？」"}
-                />
-                <p className="mt-2 text-[11px] leading-relaxed text-fg-subtle">
-                  支持 <code className="rounded bg-surface-3 px-1 font-mono text-[10.5px]">{"{{char}}"}</code>{" "}
-                  <code className="rounded bg-surface-3 px-1 font-mono text-[10.5px]">{"{{user}}"}</code>；留空则新会话显示角色介绍页。已存在的会话不会补写。
-                </p>
+              <div className="space-y-2">
+                <Field
+                  label="初始消息"
+                  hint="新建会话时自动写入的第一条角色消息，支持 {{char}} / {{user}}；留空则新会话显示角色介绍页，已存在的会话不会补写"
+                >
+                  <Textarea
+                    value={draft.greeting}
+                    onChange={(e) => patch({ greeting: e.target.value })}
+                    className="min-h-[116px] text-[12.5px] leading-relaxed"
+                    placeholder={"（她抬眼，把伞往你那边偏了偏。）\n\n「这么大的雨，站这儿等人？」"}
+                  />
+                </Field>
                 {draft.greeting.trim() && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="mt-1.5 h-7 px-2 text-[11.5px]"
+                    className="h-7 px-2 text-[11.5px]"
                     onClick={async () => {
                       await save();
                       await newSession(draft.id);

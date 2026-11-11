@@ -98,10 +98,10 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | --- | --- | --- | --- |
 | `fetch` + `ReadableStream` | `src/lib/llm.ts` | OpenAI 兼容请求、SSE 手解、中止、错误归类 | **不是 `EventSource`**；参数 JSON 整体即请求体，`buildBody` 只覆写 `messages` 并给 `stream` 补缺省 `true`，缺 `model` 直接报错；是否流式看响应 `content-type` 含不含 `event-stream`，否则回退 `res.json()`（参数里关掉 `stream` 时同样走这条路）；按空行分帧、`parts.pop()` 留半包；错误体最多取 300 字 |
 | endpoint 规范化 | `src/lib/settings.ts` | `normalizeEndpoint` / `legacyBaseUrlToEndpoint` / `looksLikeBaseUrl` | 档案存**完整 endpoint**（含 `/chat/completions`），运行期只补 `https://`、去尾斜杠，**不拼接任何路径**；`legacyBaseUrlToEndpoint` 仅在迁移旧 `baseUrl` 数据时补路径；`looksLikeBaseUrl` 只用于界面上提示「可能只填了 Base URL」，不拦请求 |
-| 上下文装配 | `src/lib/context.ts` | 有序块 → messages、负数下标切片、变量插值、trace、token 估算 | 连续 `system` 合并成一条；无 `user` 块时自动在末尾补输入；`interpolate` 支持 `{{char}} {{user}} {{input}} {{time}} {{history}}`，`time` 缺省取本地时间 |
+| 上下文装配 | `src/lib/context.ts` | 有序块 → messages、负数下标切片、变量插值、trace、token 估算 | 任意相邻同 `role` 合并成一条（`\n\n` 分隔）；无 `user` 块时自动在末尾补输入；`interpolate` 支持 `{{char}} {{user}} {{input}} {{time}} {{history}}`，`time` 缺省取本地时间 |
 | DFS 执行器 | `src/lib/workflow.ts` | 节点构造、默认图、校验、执行 | 每个分支复制消息栈互不污染；`depth > 32` 判环；`llm` 节点参数与全局参数浅合并、节点优先；`{{nodeId.output}}` 引用前序节点输出；无输出节点时退化为 `Object.values(outputs).pop()` |
 | Web Worker 沙箱 | `src/lib/script.ts` + `src/lib/script-worker.ts` | `AsyncFunction` 执行用户 JS、超时熔断、日志回传 | Vite 的 `?worker` 导入；**每次执行新建 Worker 并 `terminate()`**；主线程计时 `Math.max(200, timeoutMs)`；`settled` 防重复 resolve；返回值归一化为 `string` 或 `{ text, messages }` |
-| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target"], FORBID_TAGS: ["style","form","input"] })`；解析异常时转义原文兜底 |
+| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | 先 `normalizeParagraphs()` 归一换行（任意段间换行 → 一个空行，围栏/表格/引用/列表不拆）再 `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target"], FORBID_TAGS: ["style","form","input"] })`；解析异常时转义原文兜底 |
 
 ### 2.4 样式与视觉（设计描述见第 5 章）
 
@@ -238,7 +238,7 @@ type ContextBlock =
 ```
 
 - **负数下标**：`from = -5, to = -1` 取倒数第 5 条到倒数第 1 条；`0 → -1` 取全部。越界自动裁剪到 `[0, n-1]`，正数按 0 基绝对下标处理，`from > to` 自动交换。
-- **装配顺序**：逐块产出消息 → 连续 `system` 用 `\n\n` 合并为一条（兼容严格接口）→ 没有启用的 `user` 块时自动在末尾补当前输入。
+- **装配顺序**：逐块产出消息 → 任意相邻同 `role`（system / user / assistant）用 `\n\n` 连成一条（兼容要求严格交替的接口）→ 没有启用的 `user` 块时自动在末尾补当前输入。
 - **变量**：`interpolate()` 支持 `{{char}}` `{{user}}` `{{input}}` `{{time}}` `{{history}}`。注意 **system 块只注入 `char` / `user`**，所以在系统提示里写 `{{input}}` 会得到空串；`{{input}}` 与 `{{history}}` 实际用于自定义块与工作流模板。
 - **预览**：上下文页点「预览」弹出模态（`ui/Modal`，portal 到 body，可叠在抽屉之上），列出每条装配后的消息、每块贡献说明（trace）与粗估 token（CJK 每字 1 token、其余每 4 字符 1 token，每条消息 +4）。正文在弹窗里不截断——预览的意义就是看全。
 - **编辑**：原生 HTML5 拖拽排序 + 上移 / 下移按钮（键盘可达）；`onDragOver` 必须 `preventDefault()` 才会触发 drop。
@@ -350,6 +350,8 @@ return { text: "已注入提示", messages: ctx.messages };
 回复面的上方是一条可以省略的活动流：生成时是一行低调的状态条——柔光扫过的标签加一枚不跳动的计时，工作流节点日志作为条目在下面逐条滑入，超出高度就贴着底部往上滚；写完后整条收起成「完成 N 个步骤」，点开才看执行轨迹。后端目前只给正文、不给推理文本，所以状态条从头到尾写「正在回复」并计时，不要凭空造一段「思考了多久」；等模型开始返回推理内容，才在正文之前多一段「正在思考」和推理文本。没有轨迹可看的普通对话，回复写完就收起整条，不留一行计时。
 
 用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。
+
+渲染前先归一换行：模型吐出来的 1 个换行和 4 个换行在屏幕上是两种间距，一段紧一段松，读起来很跳。归一之后，任意两段文字之间都恰好是一个空行；代码围栏整块原样保留，表格逐行、引用连续、列表项连续、缩进续行这些靠「相邻行」成形的结构也不拆开。段落间距只由 `.md > * + *` 给统一值，块自身不带上下外边距。
 ```
 
 ### 悬浮输入层

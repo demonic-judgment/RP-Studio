@@ -70,7 +70,7 @@ export function describeHistoryBlock(from: number, to: number): string {
 
 /**
  * 上下文装配：按块顺序产出 messages。
- * 连续同 role 的 system 会被合并，兼容要求严格交替的接口。
+ * 连续同 role 的消息会被合并成一条，兼容要求严格交替的接口。
  */
 export function assembleContext(params: {
   character: Pick<Character, "name" | "systemPrompt" | "contextBlocks">;
@@ -150,17 +150,22 @@ export function assembleContext(params: {
     messages.push({ role: "user", content: input.trim() });
   }
 
-  const merged = mergeSystem(messages);
+  const merged = mergeAdjacent(messages);
   const tokens = merged.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
   return { messages: merged, trace, tokens };
 }
 
-function mergeSystem(messages: ChatMessage[]): ChatMessage[] {
+/**
+ * 相邻同 role 直接连成一条（空行分隔）。
+ * 多块 system、历史里被删掉一半的连续 user，都会冒出同 role 相邻；
+ * 很多接口要求 user / assistant 严格交替，这里统一兜住。
+ */
+function mergeAdjacent(messages: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   for (const msg of messages) {
     const prev = out[out.length - 1];
-    if (prev && prev.role === "system" && msg.role === "system") {
-      out[out.length - 1] = { role: "system", content: `${prev.content}\n\n${msg.content}` };
+    if (prev && prev.role === msg.role) {
+      out[out.length - 1] = { role: prev.role, content: `${prev.content}\n\n${msg.content}` };
     } else {
       out.push({ ...msg });
     }
