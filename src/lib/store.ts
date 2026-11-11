@@ -5,6 +5,7 @@ import type {
   CharacterDraft,
   DrawerId,
   Message,
+  MessageMeta,
   MessageVariant,
   ModelConfig,
   ModelProfile,
@@ -639,6 +640,25 @@ export const useStore = create<Store>((set, get) => ({
     const state = get();
     const sessionId = state.activeSessionId;
     if (!sessionId) return;
+    const target = state.messages.find((m) => m.id === messageId);
+
+    // 角色的回复就地改文案，不重跑模型——改的是已经生成出来的那段话。
+    // 当前版本要一起改：meta.variants 里存着正文快照，只改 content 的话，
+    // 切到别的版本再切回来，编辑就被旧快照盖掉了。
+    if (target?.role === "assistant") {
+      const meta: MessageMeta = { ...target.meta, edited: true };
+      if (meta.variants?.length) {
+        const index = meta.variantIndex ?? meta.variants.length - 1;
+        meta.variants = meta.variants.map((variant, i) =>
+          i === index ? { ...variant, content } : variant,
+        );
+      }
+      await repo.updateMessage(messageId, { content, meta });
+      // 就地替换这一条，不为一次改名把整段历史重新读一遍
+      set({ messages: state.messages.map((m) => (m.id === messageId ? { ...m, content, meta } : m)) });
+      return;
+    }
+
     await repo.updateMessage(messageId, { content, meta: { edited: true } });
     await repo.truncateAfter(sessionId, messageId);
     set({ messages: await repo.listMessages(sessionId) });

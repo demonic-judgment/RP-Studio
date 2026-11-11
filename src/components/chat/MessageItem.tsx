@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { Check, ChevronLeft, ChevronRight, Copy, GitBranch, Pencil, Trash2, X } from "lucide-react";
 import type { Message } from "../../lib/types";
-import { copyText, formatTime } from "../../lib/utils";
+import { cn, copyText, formatTime } from "../../lib/utils";
 import { useSmoothText } from "../../lib/hooks/use-smooth-text";
 import { Markdown } from "./Markdown";
 import { MessageActivity, type RunLog } from "./MessageActivity";
@@ -56,21 +56,6 @@ function MessageItemBase({
 }: MessageItemProps) {
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(message.content);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // 进入编辑时才把当前正文灌进草稿；流式期间 content 每个 chunk 都在变，
-  // 跟着同步等于每收到一段就多一次 setState，而草稿这时根本没人看。
-  useEffect(() => {
-    if (editing) {
-      const el = textareaRef.current;
-      if (el) {
-        el.focus();
-        el.selectionStart = el.value.length;
-        el.style.height = `${el.scrollHeight}px`;
-      }
-    }
-  }, [editing]);
 
   const handleCopy = async () => {
     const ok = await copyText(message.content);
@@ -101,10 +86,7 @@ function MessageItemBase({
       <IconButton
         label="编辑并重新生成"
         className="h-7 w-7"
-        onClick={() => {
-          setDraft(message.content);
-          setEditing(true);
-        }}
+        onClick={() => setEditing(true)}
         disabled={disabled}
       >
         <Pencil size={13} />
@@ -141,45 +123,16 @@ function MessageItemBase({
         className="group flex flex-col items-end gap-1.5"
       >
         {editing ? (
-          <div className="w-full max-w-[86%] rounded-2xl bg-surface p-inset-sm shadow-card">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                e.target.style.height = "auto";
-                e.target.style.height = `${e.target.scrollHeight}px`;
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setEditing(false);
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  onEdit(message.id, draft.trim());
-                  setEditing(false);
-                }
-              }}
-              className="max-h-64 w-full resize-none bg-transparent text-[14.5px] leading-relaxed text-fg outline-none"
-            />
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-[11px] text-fg-subtle">⌘/Ctrl + Enter 保存并重新生成</span>
-              <div className="flex items-center gap-1.5">
-                <Button size="sm" variant="ghost" onClick={() => setEditing(false)} leading={<X size={13} />}>
-                  取消
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  onClick={() => {
-                    if (draft.trim()) {
-                      onEdit(message.id, draft.trim());
-                      setEditing(false);
-                    }
-                  }}
-                >
-                  保存
-                </Button>
-              </div>
-            </div>
-          </div>
+          <EditCard
+            initial={message.content}
+            hint="⌘/Ctrl + Enter 保存并重新生成"
+            className="w-full max-w-[86%]"
+            onCancel={() => setEditing(false)}
+            onSave={(content) => {
+              onEdit(message.id, content);
+              setEditing(false);
+            }}
+          />
         ) : (
           <>
             <div className="max-w-[86%] whitespace-pre-wrap break-words rounded-[20px] rounded-br-[7px] bg-[var(--bubble-user)] px-inset-md py-3 text-[14.5px] leading-relaxed text-fg shadow-bubble">
@@ -188,6 +141,53 @@ function MessageItemBase({
             <div className="flex h-6 items-center pr-0.5">{userActions}</div>
           </>
         )}
+      </motion.div>
+    );
+  }
+
+  // 角色的表头（头像 + 名字 + 状态标签）在「查看」和「编辑」两种形态下都要在，
+  // 提出来复用，别为了让编辑器顶上也有名字而复制一份。
+  const replyHeader = (
+    <div className="mb-1 flex items-center gap-2">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
+        {avatar}
+      </span>
+      <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
+      {message.status === "stopped" && (
+        <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
+      )}
+      {message.meta.greeting && (
+        <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">开场</span>
+      )}
+      {message.meta.viaWorkflow && (
+        <span className="rounded-full bg-primary-container px-inset-pill py-1 text-[10px] text-on-primary-container">
+          工作流
+        </span>
+      )}
+      {message.meta.edited && <span className="text-[10px] text-fg-subtle">已编辑</span>}
+    </div>
+  );
+
+  // 改角色的回复只改存下来的正文，不重跑模型：这是「把这段话修一下」，
+  // 不是「换个说法重答」。想重答走操作条里的重新生成。
+  if (editing) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+        className="group"
+      >
+        {replyHeader}
+        <EditCard
+          initial={message.content}
+          hint="⌘/Ctrl + Enter 保存（不重新生成）"
+          onCancel={() => setEditing(false)}
+          onSave={(content) => {
+            onEdit(message.id, content);
+            setEditing(false);
+          }}
+        />
       </motion.div>
     );
   }
@@ -201,26 +201,7 @@ function MessageItemBase({
     >
       {/* 头像与名字并列一行，正文从容器左缘起排：不再为头像单开一列，
           回复面就能左右铺满整列宽度（原来是 32px 头像 + 12px 间距的左缩进）。 */}
-      <div className="mb-1 flex items-center gap-2">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
-          {avatar}
-        </span>
-        <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
-        {message.status === "stopped" && (
-          <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
-        )}
-        {message.meta.greeting && (
-          <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">
-            开场
-          </span>
-        )}
-        {message.meta.viaWorkflow && (
-          <span className="rounded-full bg-primary-container px-inset-pill py-1 text-[10px] text-on-primary-container">
-            工作流
-          </span>
-        )}
-        {message.meta.edited && <span className="text-[10px] text-fg-subtle">已编辑</span>}
-      </div>
+      {replyHeader}
 
       <MessageActivity
         message={message}
@@ -239,6 +220,16 @@ function MessageItemBase({
         announce={false}
         extraActions={
           <>
+            {!isError && message.content && (
+              <IconButton
+                label="编辑"
+                className="h-7 w-7"
+                onClick={() => setEditing(true)}
+                disabled={disabled || streaming}
+              >
+                <Pencil size={13} />
+              </IconButton>
+            )}
             <IconButton
               label="创建分支对话"
               className="h-7 w-7"
@@ -308,6 +299,71 @@ function MessageItemBase({
  * 用 memo 把已经写完的历史消息挡在外面，只有正在写的那条需要逐帧更新。
  */
 export const MessageItem = memo(MessageItemBase);
+
+/**
+ * 就地编辑正文。草稿放在组件内部：它只在编辑态挂载，挂载即取当前正文，
+ * 不用再跟着流式的每个 chunk 去同步外部 state。
+ */
+function EditCard({
+  initial,
+  hint,
+  className,
+  onCancel,
+  onSave,
+}: {
+  initial: string;
+  hint: string;
+  className?: string;
+  onCancel: () => void;
+  onSave: (content: string) => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.selectionStart = el.value.length;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, []);
+
+  const save = () => {
+    const next = draft.trim();
+    if (next) onSave(next);
+  };
+
+  return (
+    <div className={cn("rounded-2xl bg-surface p-inset-sm shadow-card", className)}>
+      <textarea
+        ref={ref}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          e.target.style.height = "auto";
+          e.target.style.height = `${e.target.scrollHeight}px`;
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+        }}
+        className="max-h-64 w-full resize-none bg-transparent text-[14.5px] leading-relaxed text-fg outline-none"
+      />
+      <div className="mt-2 flex items-center justify-between">
+        <span className="text-[11px] text-fg-subtle">{hint}</span>
+        <div className="flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" onClick={onCancel} leading={<X size={13} />}>
+            取消
+          </Button>
+          <Button size="sm" variant="primary" onClick={save}>
+            保存
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function TypingDots() {  return (
     <span className="inline-flex items-center gap-1 py-2" aria-label="正在输入">

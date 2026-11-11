@@ -506,3 +506,45 @@ textarea[class*="resize-y"]::-webkit-resizer {
 .md strong {
   font-weight: 650;
 }
+/* 折叠块：模型常把长代码包在 <details> 里。summary 保持原生可点，
+   块内元素不在 .md 的直接子级，得自己补一套间距。 */
+.md details {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 14px 2px;
+  background: color-mix(in oklab, var(--surface-2) 55%, transparent);
+}
+.md details > summary {
+  cursor: pointer;
+  padding: 9px 0;
+  font-size: 0.9em;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.md details[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+.md details > * + * {
+  margin-top: 0.75em;
+}
+.md details > :first-child {
+  margin-top: 0;
+}
+.md details > :last-child {
+  margin-bottom: 0;
+}
+.md details pre {
+  border-radius: 10px;
+}
+/* 台词整段加粗：引号由 Markdown.tsx 在消毒后包成 .md-quote。
+   比作者手写的 **强调** 轻一档（650），长对白不至于糊成一块墨。 */
+.md .md-quote {
+  font-weight: 600;
+  color: var(--fg);
+}
+/* 斜体在这个应用里几乎总是叙述 / 动作 / 心里话，不是强调重点：
+   压淡一档让它退到台词后面。用 opacity 而不是写死颜色，
+   这样引用块里的斜体也按它自己的基色等比变淡，不会比周围更抢眼。 */
+.md em {
+  opacity: 0.8;
+}

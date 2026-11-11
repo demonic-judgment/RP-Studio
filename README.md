@@ -101,7 +101,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 上下文装配 | `src/lib/context.ts` | 有序块 → messages、负数下标切片、变量插值、trace、token 估算 | 任意相邻同 `role` 合并成一条（`\n\n` 分隔）；无 `user` 块时自动在末尾补输入；`interpolate` 支持 `{{char}} {{user}} {{input}} {{time}} {{history}}`，`time` 缺省取本地时间 |
 | DFS 执行器 | `src/lib/workflow.ts` | 节点构造、默认图、校验、执行 | 每个分支复制消息栈互不污染；`depth > 32` 判环；`llm` 节点参数与全局参数浅合并、节点优先；`{{nodeId.output}}` 引用前序节点输出；无输出节点时退化为 `Object.values(outputs).pop()` |
 | Web Worker 沙箱 | `src/lib/script.ts` + `src/lib/script-worker.ts` | `AsyncFunction` 执行用户 JS、超时熔断、日志回传 | Vite 的 `?worker` 导入；**每次执行新建 Worker 并 `terminate()`**；主线程计时 `Math.max(200, timeoutMs)`；`settled` 防重复 resolve；返回值归一化为 `string` 或 `{ text, messages }` |
-| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | 先 `normalizeParagraphs()` 归一换行（任意段间换行 → 一个空行，围栏/表格/引用/列表不拆）再 `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target"], FORBID_TAGS: ["style","form","input"] })`；解析异常时转义原文兜底 |
+| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | 先 `normalizeParagraphs()` 归一换行（任意段间换行 → 一个空行；围栏/表格/引用/列表不拆；行尾冒号后的单换行保持原样；HTML 容器块连块内空行一起原样保留）再 `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target","open"], ADD_TAGS: ["details","summary"], FORBID_TAGS: ["style","form","input"] })`；消毒后 `boldQuotes()` 用 TreeWalker 把引号包住的台词包成 `<strong class="md-quote">`（跳过 `code` / `pre`，已开未闭的引号算到行尾）；解析异常时转义原文兜底 |
 
 ### 2.4 样式与视觉（设计描述见第 5 章）
 
@@ -119,7 +119,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
 | 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。左抽屉的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
-| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑重发 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
+| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；用户消息的编辑保存后**重跑模型**（编辑重发），角色回复的编辑只改落库的正文、不重跑模型，且会同步改写 `meta.variants` 里当前那一版的快照，否则切到别的版本再切回来，编辑会被旧快照盖掉；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
 | 流式回复面 | `src/components/agents/streaming-response.tsx` | beui 源码内联，无 npm 包。`status` 三态（streaming / complete / error）驱动 `aria-busy`；流式期间不出现操作条，结束后带 `y: 4 → 0` 淡入；内置复制 / 重新生成 / 有帮助 / 无帮助，`extraActions` 插槽追加本项目的删除与「模型 · 时间」；`labels` 换成中文；`contentClassName` 只调字号，排版仍交给 `.md` |
 | 输入条 | `src/components/chat/Composer.tsx` + `src/components/agents/prompt-input.tsx` | beui prompt-input 承载 textarea 与工具带：正文独占一行，下方工具带左侧是当前模型档案的 Select（选中即 `setActiveModel`，替代设置抽屉里原来的「设为当前」）、右侧发送 / 停止（图标切换动效 + 微弱投影）；快捷语与 token 估算留在卡片顶部，回车行为受 `settings.enterToSend` 控制。卡片投影走 `shadow-float-soft`（比抽屉 / 弹窗的 `shadow-float` 更贴边、更浅），焦点态用 `shadow-focus-soft` |
 | 活动流 | `src/components/agents/agent-activity/` + `src/components/chat/MessageActivity.tsx` | beui 源码内联。运行期占用一行状态条（shimmer 标签 + `tabular-nums` 计时），结束后收成可展开的轨迹；本项目只喂 `step` 项（工作流节点日志），`search` / `tool` / `trace` 三种行样式与类型已装好但暂无数据源，留给后续工具调用 |
@@ -138,7 +138,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 正在写入的那条 | 单独 `StreamingBubble` 订阅 `buffer` / `logs` / `startedAt` | chunk 级重渲染被关进一个子树，外面完全不动 |
 | `useSmoothText` | 追平立刻停掉 rAF，`text` 变长再启动 | 模型停顿的那几百毫秒里没有新字可揭，空转只会白烧 60 帧/秒 |
 | `MessageItem` / `MessageActivity` / `MessageList` / `ChatHeader` | 全部 `memo`，传进去的回调用 `useCallback` | 打字时 `ChatView` 每键都重渲染；memo 边界一旦被内联箭头打破，整列消息会跟着每个字符走一遍 |
-| `Markdown` | `normalizeParagraphs` → `splitMarkdownBlocks` → 只解析尾块 | 6k 字整段重解析约 1.5ms/帧，按块缓存后尾块约 0.1ms（归一 0.095ms + 切块 0.047ms） |
+| `Markdown` | `normalizeParagraphs` → `splitMarkdownBlocks` → 只解析尾块 | 6k 字整段重解析约 1.5ms/帧，按块缓存后尾块约 0.1ms（归一 0.095ms + 切块 0.047ms）。两步切分都带 HTML 容器块状态机（按同名标签的开闭计数推进），块内不做 keepTight 判断、空行不切块，成本是一次 `test` + 命中时才跑两条正则。消毒后的 `boldQuotes` 也在这条热路径上：它只走文本节点，且整块没有引号时直接返回原串，别在它里面加遍历整棵树的逻辑 |
 | 落库后回写 | `finish()` 用 `appendMessage` 的返回值并进内存 | 长会话不必每次回复都 `select * from messages` 全量重读 + 反序列化 `meta` |
 | 上下文估算 | 输入框用 `useDeferredValue` 喂 `assembleContext` | 装配要扫全部历史，按键触发的高频重算会和输入争同一帧 |
 | `setSettings` | 主题 / 强调色没变就不调 `applyTheme` | 设置里每敲一个字都会走这里，重刷 CSS 变量等于整页样式失效 |
@@ -376,9 +376,9 @@ return { text: "已注入提示", messages: ctx.messages };
 
 回复面的上方是一条可以省略的活动流：生成时是一行低调的状态条——柔光扫过的标签加一枚不跳动的计时，工作流节点日志作为条目在下面逐条滑入，超出高度就贴着底部往上滚；写完后整条收起成「完成 N 个步骤」，点开才看执行轨迹。后端目前只给正文、不给推理文本，所以状态条从头到尾写「正在回复」并计时，不要凭空造一段「思考了多久」；等模型开始返回推理内容，才在正文之前多一段「正在思考」和推理文本。没有轨迹可看的普通对话，回复写完就收起整条，不留一行计时。
 
-用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。
+用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。渲染之后再补一层排版：**引号里的整段台词加粗**（`「」` `『』` `“”` `""` 四种都认），斜体压淡一档——他的正文里斜体表示动作、心里话，不是强调，让它退到台词后面。这两条只作用于文本节点，`code` / `pre` 里的引号原样保留；流式期间已开未闭的引号先按到行尾加粗，避免台词打到一半才突然变粗、行宽跳一下。
 
-渲染前先归一换行：模型吐出来的 1 个换行和 4 个换行在屏幕上是两种间距，一段紧一段松，读起来很跳。归一之后，任意两段文字之间都恰好是一个空行；代码围栏整块原样保留，表格逐行、引用连续、列表项连续、缩进续行这些靠「相邻行」成形的结构也不拆开。段落间距只由 `.md > * + *` 给统一值，块自身不带上下外边距。
+渲染前先归一换行：模型吐出来的 1 个换行和 4 个换行在屏幕上是两种间距，一段紧一段松，读起来很跳。归一之后，任意两段文字之间都恰好是一个空行；代码围栏整块原样保留，表格逐行、引用连续、列表项连续、缩进续行这些靠「相邻行」成形的结构也不拆开，**HTML 容器块**（`<details>` / `<div>` / `<table>` 这类）同样整块保留、块内空行也照留——`<details>` 与 `</details>` 一旦被切进两个渲染块，浏览器会把前一个自动闭合，折叠面板就成了空壳，代码全掉到面板外面。唯一的例外是**行尾冒号**：「他说：」后面只跟了一个换行时保持单换行，把下一行留在同一段里——那是同一句话的展开，拆成两段会把话读断；冒号后面真有空的，照样分段。段落间距只由 `.md > * + *` 给统一值，块自身不带上下外边距。
 ```
 
 ### 悬浮输入层
