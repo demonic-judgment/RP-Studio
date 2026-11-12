@@ -76,7 +76,7 @@ const asObject = <T>(v: unknown, fallback: T): T =>
 
 /**
  * 三视图槽位：数组下标就是视图（正 / 侧 / 背），空槽用 `""` 占位，
- * 所以只过滤非字符串，不压缩数组 —— 否则「只传了侧面」会被读成正面。
+ * 所以只过滤非字符串，不压缩数组 —— 否则「只传了背面」会被读成面部大图。
  * 老数据只有单张 image_seed 时当成正面。
  */
 function asImageSeeds(value: unknown, legacy: string | null | undefined): string[] {
@@ -496,13 +496,20 @@ export async function deleteImage(id: string): Promise<void> {
   await getDb().query("delete from images where id = $1", [id]);
 }
 
-/** 消息被删 / 被截断后，把它名下已经没人认领的图一起清掉 */
-export async function pruneImages(sessionId: string): Promise<void> {
+/**
+ * 消息被删 / 被截断后，把它名下已经没人认领的图一起清掉。
+ *
+ * `keep` 用来放过「消息行还没落库」的在途图：流式途中抓到生图 JSON 就先开画，
+ * 图可能比消息先写进库里，这时它是合法孤儿，不能被当成垃圾删掉。
+ */
+export async function pruneImages(sessionId: string, keep?: string): Promise<void> {
+  const guard = keep ? "and i.message_id <> $2" : "";
   await getDb().query(
     `delete from images i
      where i.session_id = $1
+       ${guard}
        and not exists (select 1 from messages m where m.id = i.message_id)`,
-    [sessionId],
+    keep ? [sessionId, keep] : [sessionId],
   );
 }
 

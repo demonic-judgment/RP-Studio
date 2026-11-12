@@ -152,7 +152,7 @@ export function SettingsDrawer() {
               </div>
             </div>
 
-            <Field label="你的称呼" hint="用于 {{user}} 变量与消息署名">
+            <Field label="你的称呼" hint="对话里 {{user}} 会替换成这个名字">
               <Input
                 value={settings.userName}
                 onChange={(e) => void setSettings({ userName: e.target.value })}
@@ -174,7 +174,7 @@ export function SettingsDrawer() {
                   onChange={(enterToSend) => void setSettings({ enterToSend })}
                 />
               </Row>
-              <Row label="显示上下文估算" hint="在输入框右下角显示 token 粗估">
+              <Row label="显示上下文估算" hint="显示当前上下文大致占多少 token">
                 <Switch
                   label="显示上下文估算"
                   checked={settings.showTokenEstimate}

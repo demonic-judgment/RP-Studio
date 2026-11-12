@@ -58,7 +58,7 @@ export function ModelSettings() {
     ? `JSON 无效：${paramsCheck.error}`
     : draftModel
       ? undefined
-      : "参数里需要 model，它是请求体里的模型名";
+      : "缺 model：填服务商给的模型名";
   const baseUrlWarning = !!draft && looksLikeBaseUrl(draft.endpoint);
 
   const openEditor = (profile: ModelProfile) => {
@@ -232,7 +232,7 @@ export function ModelSettings() {
       </div>
 
       <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
-        一条档案 = 完整 endpoint + Key + 请求体参数；模型名写在参数的 model 里。用哪条档案在输入框左下角切换，角色卡不再单独配置模型。
+        模型名填在参数的 model 里。用哪条档案在输入框左下角切换 —— 换档案不用改角色卡。
       </div>
 
       <Modal
@@ -295,7 +295,7 @@ export function ModelSettings() {
                     /chat/completions 结尾
                   </span>
                 ) : (
-                  "完整地址，直接按此发起请求；应用不再补 /chat/completions"
+                  "填完整地址，记得把 /chat/completions 也带上"
                 )
               }
             >
@@ -307,7 +307,7 @@ export function ModelSettings() {
               />
             </Field>
 
-            <Field label="API Key" hint="仅保存在本机 PGlite，不会上传">
+            <Field label="API Key" hint="只存在本机，不会上传">
               <div className="relative">
                 <Input
                   type={showKey ? "text" : "password"}
@@ -328,9 +328,9 @@ export function ModelSettings() {
             </Field>
 
             <Field
-              label="额外参数（请求体 JSON）"
+              label="额外参数（JSON）"
               error={paramsError}
-              hint="整段 JSON 就是请求体，应用只注入 messages；新建档案预置 model / stream / temperature / top_p"
+              hint="model 必填；stream 建议保持 true，其余照服务商文档加"
               action={
                 <button
                   type="button"

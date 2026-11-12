@@ -52,11 +52,11 @@ export const NODE_META: Record<
   WorkflowNodeKind,
   { label: string; hint: string; color: string; icon: string }
 > = {
-  input: { label: "输入", hint: "用户消息与变量", color: "#0b57d0", icon: "inbox" },
-  template: { label: "模板", hint: "注入提示词", color: "#6750a4", icon: "braces" },
-  script: { label: "脚本", hint: "浏览器端 JS", color: "#8a6100", icon: "code" },
-  llm: { label: "模型", hint: "调用大模型", color: "#00696d", icon: "sparkles" },
-  output: { label: "输出", hint: "最终回复", color: "#3f6b32", icon: "flag" },
+  input: { label: "输入", hint: "用户这句话", color: "#0b57d0", icon: "inbox" },
+  template: { label: "模板", hint: "套一段固定话术", color: "#6750a4", icon: "braces" },
+  script: { label: "脚本", hint: "改写或判断内容", color: "#8a6100", icon: "code" },
+  llm: { label: "模型", hint: "让模型来写", color: "#00696d", icon: "sparkles" },
+  output: { label: "输出", hint: "作为回复发出", color: "#3f6b32", icon: "flag" },
 };
 
 export function defaultWorkflow(): Workflow {

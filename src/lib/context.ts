@@ -32,18 +32,40 @@ export function defaultContextBlocks(systemPromptHint = ""): ContextBlock[] {
  * 图生图开关打开时插进上下文的那条 system 指令。
  * 它只负责「约定格式」，具体画面由聊天模型自己写；所以要能改 ——
  * 不同模型对代码块、键名的服从度不一样。
+ *
+ * 放在回复**开头**：JSON 一旦闭合就能先开画，正文继续往下打，两条线并行。
  */
-export const DEFAULT_IMAGE_DIRECTIVE = `【画面同步】每轮回复的最后，追加一段 JSON（用三个反引号加 json 的代码块包裹），格式固定：
+export const DEFAULT_IMAGE_DIRECTIVE = `【画面同步】每轮回复先输出一段 JSON 生图提示词，再写正文。JSON 用三个反引号加 json 的代码块包裹，共 4 个属性，简洁精确、术语化：
+\`\`\`json
+{
+"生图提示词": "
+表情：
+服饰：
+动作：
+核心物品：
+"
+}
+\`\`\`
+「生图提示词」只写画面本身：表情、服饰、动作、核心物品各占一行，以 {{char}} 为主体，五官与身材与三视图参考（面部大图 / 正面 / 背面）保持一致。这段 JSON 只用于生成画面，不要在正文里复述，也不要向 {{user}} 解释它的用途。`;
+
+/** 旧默认：整段被认出来的话，升级时换成上面那版（用户自己改过的不动） */
+const LEGACY_IMAGE_DIRECTIVE = `【画面同步】每轮回复的最后，追加一段 JSON（用三个反引号加 json 的代码块包裹），格式固定：
 {"生图提示词": "……"}
-「生图提示词」是给图生图模型的自然语言画面描述：以 {{char}} 为主体，写清此刻的外貌、表情、动作、服装、镜头距离与角度、光线、场景氛围，五官、发型与服装基调与三视图参考（正面 / 侧面 / 背面）保持一致；竖构图 2:3、人物居中偏上，画面里不要出现文字、字幕或对话气泡。这段 JSON 只用于生成画面，不要在正文里复述，也不要向 {{user}} 解释它的用途。`;
+「生图提示词」是给图生图模型的自然语言画面描述：以 {{char}} 为主体，写清此刻的外貌、表情、动作、服装、镜头距离与角度、光线、场景氛围，五官、发型与服装基调与三视图参考（面部大图 / 正面 / 背面）保持一致；竖构图 2:3、人物居中偏上，画面里不要出现文字、字幕或对话气泡。这段 JSON 只用于生成画面，不要在正文里复述，也不要向 {{user}} 解释它的用途。`;
 
 /** 旧预设里的比例文案，2:3 改造后需要静默替换（老角色卡 / 老设置里存着原文） */
 const LEGACY_ASPECT_TEXT = "正方形 1:1 构图";
 export const CURRENT_ASPECT_TEXT = "竖构图 2:3、人物居中偏上";
 
-/** 底图改成三视图后，老预设里「与底图一致」的说法一并升级 */
-const LEGACY_VIEW_TEXT = "五官、发型与服装基调与底图保持一致";
-const CURRENT_VIEW_TEXT = "五官、发型与服装基调与三视图参考（正面 / 侧面 / 背面）保持一致";
+/**
+ * 底图口径的历代说法：从「一张底图」到「正面 / 侧面 / 背面」再到现在的
+ * 「面部大图 / 正面 / 背面」。全都换到 CURRENT_VIEW_TEXT，老角色卡不用手工改。
+ */
+const LEGACY_VIEW_TEXTS = [
+  "五官、发型与服装基调与底图保持一致",
+  "五官、发型与服装基调与三视图参考（正面 / 侧面 / 背面）保持一致",
+];
+const CURRENT_VIEW_TEXT = "五官、发型与服装基调与三视图参考（面部大图 / 正面 / 背面）保持一致";
 
 /** 把老预设里的 1:1 换成 2:3；没命中就原样返回，可重复调用 */
 export function upgradeImageAspect(content: string): string {
@@ -52,10 +74,17 @@ export function upgradeImageAspect(content: string): string {
     : content;
 }
 
-/** 老预设 → 现行文案（比例 + 三视图）：可重复调用，用户自己改过的内容不动 */
+/**
+ * 老预设 → 现行文案（比例 + 三视图）：可重复调用，用户自己改过的内容不动。
+ * 整段还是上一代默认原文的，直接换成新版（JSON 挪到回复开头）。
+ */
 export function upgradeImageDirective(content: string): string {
-  const next = upgradeImageAspect(content);
-  return next.includes(LEGACY_VIEW_TEXT) ? next.replace(LEGACY_VIEW_TEXT, CURRENT_VIEW_TEXT) : next;
+  let next = upgradeImageAspect(content);
+  for (const legacy of LEGACY_VIEW_TEXTS) {
+    if (next.includes(legacy)) next = next.replace(legacy, CURRENT_VIEW_TEXT);
+  }
+  // 短语替换完正好等于上一代默认原文：说明用户没动过，整段换成新版
+  return next.trim() === LEGACY_IMAGE_DIRECTIVE.trim() ? DEFAULT_IMAGE_DIRECTIVE : next;
 }
 
 export function defaultImageDirectiveBlock(): ContextBlock {
@@ -77,19 +106,21 @@ export function ensureImageDirectiveBlock(blocks: ContextBlock[]): ContextBlock[
   return next;
 }
 
-/** 模板插值：{{char}} / {{user}} / {{time}} / {{input}} */
+/** 模板插值：{{char}} / {{user}} / {{time}} / {{input}}（{{prompt}} 是 {{input}} 的别名） */
 export function interpolate(
   template: string,
   vars: { char?: string; user?: string; input?: string; time?: string; history?: string },
 ): string {
   if (!template) return "";
-  return template.replace(/\{\{\s*(char|user|input|time|history)\s*\}\}/gi, (_, key: string) => {
+  return template.replace(/\{\{\s*(char|user|input|prompt|time|history)\s*\}\}/gi, (_, key: string) => {
     switch (key.toLowerCase()) {
       case "char":
         return vars.char ?? "";
       case "user":
         return vars.user ?? "";
+      // 生图提示词块里习惯写 {{prompt}}，语义就是本轮那句 input
       case "input":
+      case "prompt":
         return vars.input ?? "";
       case "time":
         return vars.time ?? new Date().toLocaleString("zh-CN");
@@ -265,11 +296,11 @@ export function blockKindMeta(kind: ContextBlock["kind"]): {
     case "system":
       return { label: "角色系统提示", hint: "来自角色卡设定", tone: "bg-primary-container text-on-primary-container" };
     case "history":
-      return { label: "历史对话", hint: "支持负数下标切片", tone: "bg-surface-3 text-fg-muted" };
+      return { label: "历史对话", hint: "下标可填负数", tone: "bg-surface-3 text-fg-muted" };
     case "custom":
-      return { label: "自定义提示词", hint: "可指定 role", tone: "bg-secondary-container text-on-primary-container" };
+      return { label: "自定义提示词", hint: "建议写设定补充", tone: "bg-secondary-container text-on-primary-container" };
     case "image":
-      return { label: "生图 JSON 预设", hint: "system · 随图生图开关生效", tone: "bg-secondary-container text-on-primary-container" };
+      return { label: "生图 JSON 预设", hint: "顶栏开关控制", tone: "bg-secondary-container text-on-primary-container" };
     case "user":
       return { label: "用户回复", hint: "当前输入", tone: "bg-surface-2 text-fg" };
   }

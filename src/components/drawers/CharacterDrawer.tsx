@@ -27,7 +27,7 @@ type TabId = "basic" | "context" | "workflow" | "script" | "phrases";
 const AVATARS = ["🎭", "🌙", "🛰️", "🕯️", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "🗡️", "👑", "🌊"];
 
 /** 三视图槽位：下标即视图，跟 Character.imageSeeds 一一对应 */
-const VIEW_LABELS = ["正面", "侧面", "背面"] as const;
+const VIEW_LABELS = ["面部大图", "正面", "背面"] as const;
 
 /** 存之前去掉尾部空槽，中间的空槽要留着 —— 视图位置不能挪 */
 function trimSeeds(seeds: string[]): string[] {
@@ -246,7 +246,7 @@ export function CharacterDrawer() {
 
               <Field
                 label="三视图底图"
-                hint="正面 / 侧面 / 背面各一张，至少一张即可。图生图每轮都拿这组参考重新画（多角度对齐发型与服装），画面变化只来自提示词；上传后按长边 1280 等比压缩，不裁切"
+                hint="建议同一画风的三张：面部特写、正面全身、背面。至少一张也能用，脸越清楚出图越稳"
               >
                 <div className="grid grid-cols-3 gap-2">
                   {VIEW_LABELS.map((label, index) => {
@@ -314,7 +314,7 @@ export function CharacterDrawer() {
               <div className="space-y-2">
                 <Field
                   label="初始消息"
-                  hint="新建会话时自动写入的第一条角色消息，支持 {{char}} / {{user}}；留空则新会话显示角色介绍页，已存在的会话不会补写"
+                  hint="新建会话时自动写入的第一条角色消息，支持 {{char}} / {{user}}；留空就显示角色介绍页"
                 >
                   <Textarea
                     value={draft.greeting}
@@ -341,7 +341,7 @@ export function CharacterDrawer() {
 
               <Field
                 label="系统提示词"
-                hint="支持 {{char}} / {{user}} 变量；这是上下文编排中「角色系统提示」块的内容"
+                hint="支持 {{char}} / {{user}}。写完就是上下文编排里「角色系统提示」块的内容"
               >
                 <Textarea
                   value={draft.systemPrompt}
@@ -402,7 +402,7 @@ export function CharacterDrawer() {
                 <div>
                   <p className="text-[12.5px] font-medium text-fg">启用工作流</p>
                   <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-                    开启后，生成回复时先按画布编排执行，再写入会话。
+                    开启后，回复会按画布的顺序来写。不想用就关掉，回到普通对话。
                   </p>
                 </div>
                 <Switch
@@ -544,7 +544,7 @@ function QuickPhrasesEditor({
   return (
     <div className="space-y-3">
       <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-        快捷语显示在输入框上方，点击即可填入。「标签」用于按钮，「内容」是实际发送的文本。
+        点一下就能填入。「标签」是按钮上的字，「内容」是实际发出去的文本。
       </p>
       {phrases.map((phrase) => (
         <div key={phrase.id} className="space-y-2 rounded-2xl border border-line p-inset-sm">

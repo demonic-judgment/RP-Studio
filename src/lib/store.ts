@@ -943,6 +943,31 @@ export const useStore = create<Store>((set, get) => ({
       },
     });
 
+    /**
+     * 流式途中就抓生图 JSON：提示词一旦完整闭合就把图放出去，
+     * 不等整条回复写完 —— 模型后半段还要打的字，跟画图并行跑。
+     *
+     * 代价是图可能比消息行先落库（新回复这一刻还没有 id）：
+     * 所以整轮流式先占定一个 id，`finish` 写回时复用它，
+     * 早画出来的图挂在这个 id 上，等消息落库后自然对得上。
+     */
+    const earlyMessageId = carry?.id ?? uid();
+    let earlyPrompt = "";
+    let probedLength = 0;
+    const maybeEarlyGenerate = (full: string) => {
+      if (earlyPrompt || !state.settings.imageEnabled) return;
+      // 廉价门槛：没有闭合的 `}` / 围栏就说明 JSON 还没打完，别做全量扫描
+      if (full.length < 24 || (!full.includes("}") && !full.includes("```"))) return;
+      // 每个 chunk 都解析一次太贵：攒够一小段再看
+      if (full.length - probedLength < 16) return;
+      probedLength = full.length;
+      const probed = extractImagePrompt(full);
+      if (!probed.prompt) return;
+      earlyPrompt = probed.prompt;
+      // 不 await：画图在后台跑，正文继续往下流
+      void get().generateImage({ messageId: earlyMessageId, prompt: probed.prompt });
+    };
+
     const finish = async (content: string, status: Message["status"], meta: Message["meta"]) => {
       if (!content && status !== "error") {
         set({ stream: emptyStream });
@@ -976,7 +1001,8 @@ export const useStore = create<Store>((set, get) => ({
         role: "assistant",
         content: text,
         status,
-        id: carry?.id,
+        // 流式途中已经提前生过图的话，消息必须落在那个 id 上，否则图就成了孤儿
+        id: carry?.id ?? earlyMessageId,
         createdAt: carry?.createdAt,
         meta: variants ? { ...nextMeta, variants, variantIndex: variants.length - 1 } : nextMeta,
       });
@@ -989,7 +1015,8 @@ export const useStore = create<Store>((set, get) => ({
       set({ messages, stream: emptyStream });
       // 先把生图放出去，再刷新会话列表：listSessions 在 PGlite 上要一次查询往返，
       // 挡在生图前面会把「回复结束 → 开始画」的空档硬生生拉长一截。
-      if (extracted.prompt && status !== "error" && get().settings.imageEnabled) {
+      // 流式途中已经按同一段提示词开过画的话，这里不再重复下单。
+      if (extracted.prompt && extracted.prompt !== earlyPrompt && status !== "error" && get().settings.imageEnabled) {
         // 不 await：图在后台画，聊天不用等
         void get().generateImage({ messageId: saved.id, prompt: extracted.prompt });
       }
@@ -1012,6 +1039,7 @@ export const useStore = create<Store>((set, get) => ({
           onEvent: (event: WorkflowRunEvent) => {
             if (event.kind === "delta") {
               set((s) => ({ stream: { ...s.stream, buffer: event.message } }));
+              maybeEarlyGenerate(event.message);
             } else if (event.kind === "log" || event.kind === "error") {
               set((s) => ({
                 stream: {
@@ -1058,6 +1086,7 @@ export const useStore = create<Store>((set, get) => ({
           signal: abortController.signal,
           onDelta: (_delta, full) => {
             set((s) => ({ stream: { ...s.stream, buffer: full } }));
+            maybeEarlyGenerate(full);
           },
         });
         await finish(response.content, response.aborted ? "stopped" : "done", {

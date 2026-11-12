@@ -289,7 +289,7 @@ export function LeftDrawer() {
           编辑当前角色卡
         </Button>
         <p className="mt-2 text-center text-[10.5px] leading-relaxed text-fg-subtle">
-          数据保存在浏览器本地 · PGlite
+          数据只保存在这台设备上
         </p>
       </div>
     </Drawer>

@@ -155,7 +155,7 @@ export const DEFAULT_IMAGE_PROFILE: ImageProfile = createImageProfile({
 });
 
 /**
- * 生图提示词的默认块：画风构图 → 模型返回的提示词。
+ * 生图提示词的默认块：画面基准 → 模型返回的提示词 → 负面约束。
  * 角色外形不再单独成块，需要时用 {{char}} 或直接在硬编码里写。
  */
 export function defaultImagePromptBlocks(): ImagePromptBlock[] {
@@ -164,16 +164,47 @@ export function defaultImagePromptBlocks(): ImagePromptBlock[] {
       id: uid("ipb"),
       kind: "text",
       enabled: true,
-      label: "画风与构图",
+      label: "画面基准",
       content:
-        "同一角色，保持一致的五官、发型与气质；竖构图 2:3，半身，柔和光线，细节丰富，背景干净",
+        "基于三视图创作，仅保留角色的五官和身材。保持画风一致。比例2:3，斜45度视角，半身。柔和光线，细节丰富。",
     },
     { id: uid("ipb"), kind: "prompt", enabled: true, label: "本轮生图提示词" },
+    {
+      id: uid("ipb"),
+      kind: "text",
+      enabled: true,
+      label: "负面约束",
+      content: "避免错误人体器官，避免错误方向结构位置",
+    },
   ];
+}
+
+/** 上一代默认编排的第一块（「画风与构图」）长这样，用来认出「没动过的默认值」 */
+const LEGACY_DEFAULT_BLOCK_HEAD = "同一角色，保持一致的五官";
+
+/** 旧默认是两块：硬编码 + 提示词。形状对得上就整体升级成现在的三块 */
+function isLegacyDefaultBlocks(raw: unknown[]): boolean {
+  if (raw.length !== 2) return false;
+  const [head, tail] = raw as Array<Record<string, unknown>>;
+  return (
+    head?.kind === "text" &&
+    typeof head.content === "string" &&
+    head.content.trim().startsWith(LEGACY_DEFAULT_BLOCK_HEAD) &&
+    tail?.kind === "prompt"
+  );
 }
 
 function normalizeImageBlocks(raw: unknown): ImagePromptBlock[] {
   if (!Array.isArray(raw)) return defaultImagePromptBlocks();
+  // 用户没改过默认编排的，直接换成新默认；沿用它原来的块 id，
+  // 免得编辑器里的 key 全换一遍
+  if (isLegacyDefaultBlocks(raw)) {
+    const [head, tail] = raw as Array<Record<string, unknown>>;
+    return defaultImagePromptBlocks().map((block, index) => {
+      const legacyId = index === 0 ? head.id : index === 1 ? tail.id : undefined;
+      return typeof legacyId === "string" && legacyId ? { ...block, id: legacyId } : block;
+    });
+  }
   const blocks: ImagePromptBlock[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;

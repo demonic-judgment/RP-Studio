@@ -485,12 +485,12 @@ export interface AssembledImagePrompt {
 export const imageBlockLabel: Record<ImagePromptBlockKind, { label: string; hint: string; tone: string }> = {
   text: {
     label: "硬编码提示词",
-    hint: "支持变量",
+    hint: "建议写画风与构图",
     tone: "bg-surface-3 text-fg-muted",
   },
   prompt: {
     label: "生图提示词",
-    hint: "模型返回的 JSON",
+    hint: "由回复自动填入",
     tone: "bg-primary-container text-on-primary-container",
   },
 };

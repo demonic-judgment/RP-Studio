@@ -87,7 +87,7 @@ export async function prepareReferenceImage(file: File): Promise<string> {
 /**
  * 多张参考图 → 一张横向「三视图」拼图。
  *
- * 用在网关不认 multipart 多文件（`image[]`）的退路上：把正面 / 侧面 / 背面并排
+ * 用在网关不认 multipart 多文件（`image[]`）的退路上：把面部大图 / 正面 / 背面并排
  * 画进一张图，再当单张底图上传。每张按 contain 放进自己的格子（留边不裁），
  * 宁可留黑边也别把侧身的轮廓裁掉；总宽压到 2400 以内，再大只是上传变慢。
  */

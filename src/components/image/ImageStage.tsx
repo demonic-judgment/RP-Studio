@@ -233,7 +233,7 @@ export function ImageStage() {
             </span>
             <p className="px-4 text-[12px] font-medium text-fg-muted">还没有画面</p>
             <p className="px-5 text-[11px] leading-relaxed text-fg-subtle">
-              在角色卡里上传三视图底图（正面 / 侧面 / 背面），然后继续对话：每轮都拿这组参考重新画这一幕。
+              先在角色卡里传三视图（面部大图 / 正面 / 背面），再开始对话 —— 画面会跟着每轮回复变化。
             </p>
           </div>
         )}
@@ -395,7 +395,7 @@ function ImageGallery({
       open={open}
       onClose={onClose}
       title="全部画面"
-      subtitle={`${total} 张 · 按气泡分组，重新生图的旧版本都保留在这里`}
+      subtitle={`${total} 张 · 重新生图的旧版本都留在这里，随时切回`}
       className="max-w-[720px]"
       footer={
         <p className="text-[11px] text-fg-subtle">点缩略图切换到那一版，画面组件会跟着跳过去。</p>

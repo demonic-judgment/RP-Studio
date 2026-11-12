@@ -69,7 +69,7 @@ export function BackgroundSettings() {
     }
     commit({ url: parsed.toString(), opacity: background?.opacity ?? 1, blur: background?.blur ?? 0 }, true);
     setUrlDraft("");
-    toast({ title: "背景已更新", description: "外链若被防盗链拦住，请下载后上传", variant: "success" });
+    toast({ title: "背景已更新", description: "图裂了的话，下载后再上传", variant: "success" });
   };
 
   return (
@@ -78,7 +78,7 @@ export function BackgroundSettings() {
         <div className="min-w-0">
           <p className="text-[12.5px] font-medium text-fg-muted">主页背景</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-fg-subtle">
-            铺在最底层，上面照旧压着内容面板
+            建议选对比度低一些的图，正文更好读
           </p>
         </div>
         <a
@@ -142,7 +142,7 @@ export function BackgroundSettings() {
         </div>
       </div>
 
-      <Field label="图片直链" hint="外链会被站点的防盗链拦住，Pixiv 的图建议下载后上传">
+      <Field label="图片直链" hint="建议下载后上传：很多站点的外链直接填会裂图">
         <div className="flex gap-2">
           <Input
             value={urlDraft}

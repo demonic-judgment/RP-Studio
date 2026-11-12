@@ -48,7 +48,7 @@ export function ImageSettings() {
     ? `JSON 无效：${paramsCheck.error}`
     : draftModel
       ? undefined
-      : "参数里需要 model，它是请求体里的模型名";
+      : "缺 model：填服务商给的模型名";
 
   const openEditor = (profile: ImageProfile) => {
     setDraft({ ...profile });
@@ -91,10 +91,8 @@ export function ImageSettings() {
             图生图
           </p>
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-            角色回复里返回的「生图提示词」会被摘出来，按下面的编排拼成 prompt，
-            拿角色卡的三视图底图重新画（不叠加上一张的结果）。关闭后不生成图片、不显示悬浮画面；
-            正文里的生图 JSON 仍然不会进气泡（要改原文点那条消息的「编辑原文」）。
-            「返回 JSON」的 system 预设在各角色卡的「提示词编排」里，可改。
+            建议先给角色卡传好三视图底图，画面才稳。关掉后不生成图片，也不显示悬浮画面。
+            想换画风或构图，改下面的编排；想改「让角色返回 JSON」的约定，去角色卡的「提示词编排」。
           </p>
         </div>
         <Switch
@@ -243,18 +241,14 @@ export function ImageSettings() {
       </div>
 
       <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-        比例固定 2:3 竖图（默认 size 1024x1536，可改参数）。返回的图会先居中裁成 2:3、再压成
-        800x1200 的 WebP 存本地，所以接口给什么比例都能对齐画面框。图生图用 multipart 把三视图参考图
-        作为文件上传（一张用 image，多张用 image[]；网关不认多图时会自动拼成一张三视图重试），
-        其余参数逐字段进表单；文生图整体 JSON 作为请求体。
-        没有参考图时图生图会直接报错——先在角色卡里上传至少一张三视图底图。
+        画面固定按 2:3 竖图出。没有参考图时图生图会直接报错 —— 先在角色卡里上传至少一张三视图底图。
       </p>
 
       <Modal
         open={!!draft}
         onClose={closeEditor}
         title={isNew ? "新增生图档案" : "编辑生图档案"}
-        subtitle={isNew ? "保存后才会出现在列表里" : "图生图默认走 /v1/images/edits"}
+        subtitle={isNew ? "保存后才会出现在列表里" : "改完记得保存"}
         footer={
           draft ? (
             <>
@@ -304,7 +298,7 @@ export function ImageSettings() {
               />
             </Field>
 
-            <Field label="Endpoint" hint="完整地址，原样请求；图生图通常以 /images/edits 结尾">
+            <Field label="Endpoint" hint="原样请求，别漏 /v1；图生图一般以 /images/edits 结尾">
               <Input
                 value={draft.endpoint}
                 onChange={(event) => setDraft({ ...draft, endpoint: event.target.value })}
@@ -313,7 +307,7 @@ export function ImageSettings() {
               />
             </Field>
 
-            <Field label="API Key" hint="留空则不带 Authorization 头">
+            <Field label="API Key" hint="只存在本机；中转不校验鉴权时可以留空">
               <div className="relative">
                 <Input
                   type={showKey ? "text" : "password"}
@@ -334,9 +328,9 @@ export function ImageSettings() {
             </Field>
 
             <Field
-              label="参数（请求体 JSON）"
+              label="参数（JSON）"
               error={paramsError}
-              hint="multipart 时逐字段进表单，文生图整体作为请求体；默认 model + size 1024x1536 + n"
+              hint="model 必填；size 建议 1024x1536，其余按服务商文档加"
               action={
                 <button
                   type="button"

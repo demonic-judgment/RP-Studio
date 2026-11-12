@@ -253,10 +253,10 @@ function CharacterIntro({
       )}
 
       <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-[11px] text-fg-subtle">
-        <Capability>上下文编排</Capability>
-        <Capability>工作流</Capability>
-        <Capability>脚本沙箱</Capability>
-        <Capability>PGlite 本地存储</Capability>
+        <Capability>角色设定</Capability>
+        <Capability>画面同步</Capability>
+        <Capability>自定义工作流</Capability>
+        <Capability>数据只存本地</Capability>
       </div>
     </motion.div>
   );

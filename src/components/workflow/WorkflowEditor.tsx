@@ -647,7 +647,7 @@ export function WorkflowEditor({
 
               {selectedNode.kind === "llm" && (
                 <label className="block">
-                  <span className="mb-1 block text-[11px] text-fg-subtle">参数覆盖（JSON 合并）</span>
+                  <span className="mb-1 block text-[11px] text-fg-subtle">额外参数（JSON）</span>
                   <textarea
                     value={(selectedNode.config as LlmNodeConfig).params ?? ""}
                     onChange={(e) => patchConfig(selectedNode.id, { params: e.target.value })}
@@ -666,7 +666,7 @@ export function WorkflowEditor({
               )}
 
               <div className="flex items-center justify-between rounded-xl border border-line px-inset-lg py-2.5">
-                <span className="text-[11px] text-fg-muted">节点 ID</span>
+                <span className="text-[11px] text-fg-muted">节点 ID（模板里用它取值）</span>
                 <span className="max-w-[150px] truncate font-mono text-[10px] text-fg-subtle">{selectedNode.id}</span>
               </div>
 

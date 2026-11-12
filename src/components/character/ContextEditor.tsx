@@ -94,7 +94,7 @@ export function ContextEditor({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-          顺序即上下文顺序。拖动左侧手柄排序，系统会按序拼装为最终 messages。
+          拖动左侧手柄调整顺序：越靠前，模型越早读到。
         </p>
         <button
           onClick={() => setPreviewOpen(true)}
@@ -324,13 +324,12 @@ export function ContextEditor({
                           <textarea
                             value={block.content}
                             onChange={(e) => patch(block.id, { content: e.target.value })}
-                            placeholder="要求模型在回复末尾返回生图提示词 JSON 的 system 指令"
+                            placeholder="要求模型在回复开头先给出画面 JSON 的 system 指令，支持 {{char}} / {{user}}"
                             className="min-h-[150px] w-full resize-y rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[12px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--ring)]/15"
                           />
                           <div className="flex items-start justify-between gap-2">
                             <p className="text-[11px] leading-relaxed text-fg-subtle">
-                              只在顶栏「图生图」开关打开时进入上下文，按 system 消息发送。
-                              支持 {"{{char}}"} {"{{user}}"}；这段 JSON 不会显示在气泡里。
+                              建议保留 4 项结构：改了格式，模型可能就不按 JSON 回了。顶栏关掉「图生图」时这段不生效。
                             </p>
                             <button
                               type="button"
@@ -345,7 +344,7 @@ export function ContextEditor({
 
                       {block.kind === "user" && (
                         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-                          当前用户输入的占位块。拖动它决定输入在消息栈中的位置；缺失时会自动追加到末尾。
+                          代表你这一次说的话。拖动它调整你这句话出现的位置。
                         </p>
                       )}
 
@@ -392,13 +391,13 @@ export function ContextEditor({
       <Modal
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
-        title="上下文装配预览"
+        title="上下文预览"
         subtitle={`${preview.messages.length} 条消息 · ≈ ${preview.tokens} tokens`}
         className="max-w-[680px]"
         footer={
           <>
             <p className="min-w-0 text-[11px] leading-relaxed text-fg-subtle">
-              按块的顺序拼装，未启用的块不参与
+              留空的块会被跳过，不想要的直接关掉
             </p>
             <Button
               variant="ghost"

@@ -19,7 +19,8 @@ import { Modal } from "../ui/Modal";
 import { Switch } from "../ui/Form";
 
 /** 预览用的占位提示词：没有真实回复时也能看清拼装结果 */
-const SAMPLE_PROMPT = "雨夜，湿漉漉的青石街道，霓虹映在水面，女孩收起黑伞回头，半身，逆光";
+const SAMPLE_PROMPT =
+  "表情：嘴角微扬，眼神柔和\n服饰：白衬衫，袖口挽到小臂\n动作：侧身回头\n核心物品：咖啡杯";
 
 function newBlock(kind: ImagePromptBlock["kind"]): ImagePromptBlock {
   const id = uid("ipb");
@@ -79,7 +80,7 @@ export function ImagePromptEditor({
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-          顺序即最终 prompt 的顺序。拖动左侧手柄排序，「生图提示词」块决定模型返回的那句话插在哪。
+          拖动左侧手柄调整顺序：越靠前，越先被画图模型读到。
         </p>
         <button
           type="button"
@@ -202,7 +203,7 @@ export function ImagePromptEditor({
                           <textarea
                             value={block.content}
                             onChange={(event) => patch(block.id, { content: event.target.value })}
-                            placeholder="硬编码的画风 / 构图 / 光线描述，可用 {{char}} / {{user}} / {{prompt}}"
+                            placeholder="写每轮都成立的话：画风、构图、光线、镜头。可用 {{char}} / {{user}} / {{prompt}}"
                             className="min-h-[100px] w-full resize-y rounded-xl bg-surface-2 px-inset-lg py-2.5 text-[12.5px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--ring)]/15"
                           />
                           <p className="text-[11px] text-fg-subtle">
@@ -213,7 +214,7 @@ export function ImagePromptEditor({
 
                       {block.kind === "prompt" && (
                         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-                          聊天模型返回的「生图提示词」会插到这个位置。放在最后一段通常效果更稳。
+                          模型每轮返回的那句提示词会填在这里。想让它压过前面的画风描述，就放到最后一格。
                         </p>
                       )}
 
@@ -263,11 +264,13 @@ export function ImagePromptEditor({
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         title="生图提示词预览"
-        subtitle={`${preview.text.length} 字 · 用一句示例提示词拼装`}
+        subtitle={`${preview.text.length} 字 · 用一句示例提示词试拼`}
         className="max-w-[640px]"
         footer={
           <>
-            <p className="min-w-0 text-[11px] leading-relaxed text-fg-subtle">按块的顺序拼装，未启用的块不参与</p>
+            <p className="min-w-0 text-[11px] leading-relaxed text-fg-subtle">
+              留空的块会被跳过，不想要的直接关掉
+            </p>
             <Button variant="ghost" size="sm" data-autofocus onClick={() => setPreviewOpen(false)}>
               关闭
             </Button>

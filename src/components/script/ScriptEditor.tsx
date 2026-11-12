@@ -81,7 +81,7 @@ export function ScriptEditor({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-          在 Web Worker 沙箱中执行，超时 {Math.round(timeoutMs / 1000)}s 自动终止。
+          超时会自动停止（当前 {Math.round(timeoutMs / 1000)}s）。不确定怎么写就先点「载入示例」。
         </p>
         <div className="flex shrink-0 items-center gap-1">
           <IconButton label="清空脚本" onClick={() => onChange("")}>
