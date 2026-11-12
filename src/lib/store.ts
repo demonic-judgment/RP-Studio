@@ -605,6 +605,18 @@ export const useStore = create<Store>((set, get) => ({
     const character = get().characters.find((c) => c.id === id) ?? null;
     if (!character) return;
     localStorage.setItem(LAST_CHAR_KEY, id);
+
+    // 已经停在这个角色上：只刷新会话列表，别动当前会话。
+    // 左栏的「编辑角色卡」和重复点同一条角色都会走到这里，用户只想改卡 / 看看，
+    // 把 activeSessionId 清空再自动选 sessions[0] 等于替他换了对话。
+    const currentSessionId = get().activeSessionId;
+    if (get().activeCharacterId === id && currentSessionId) {
+      const kept = await repo.listSessions(id);
+      set({ sessions: kept });
+      if (kept.some((s) => s.id === currentSessionId)) return;
+      // 这个会话已经不在了（被删掉）：往下走正常流程，重新挑一个
+    }
+
     clearImageQueue();
     set({
       activeCharacterId: id,
