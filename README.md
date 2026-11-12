@@ -119,7 +119,8 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 组件 | 文件 | 要点 |
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
-| 抽屉 | `src/components/drawers/{LeftDrawer,SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 三个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。左抽屉的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
+| 左栏 | `src/components/drawers/{LeftPanel,Sidebar,LeftDrawer}.tsx` | 内容只有一份（`LeftPanel`），两个外壳：桌面端 `Sidebar` 常驻左侧、不可收纳；窄屏 `LeftDrawer` 是遮罩式抽屉。断点 1024（`lib/hooks/use-wide-layout.ts`），App 按断点二选一挂载，不靠 CSS 藏——否则两份列表同时订阅 store，抽屉开着拖宽还会把 `drawer` 卡在 `"left"`，背景光斑一直 frozen |
+| 抽屉 | `src/components/drawers/{SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 设置与角色卡两个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。左栏的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
 | 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；用户消息的编辑保存后**重跑模型**（编辑重发），角色回复的编辑只改落库的正文、不重跑模型，且会同步改写 `meta.variants` 里当前那一版的快照，否则切到别的版本再切回来，编辑会被旧快照盖掉；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
 | 流式回复面 | `src/components/agents/streaming-response.tsx` | beui 源码内联，无 npm 包。`status` 三态（streaming / complete / error）驱动 `aria-busy`；流式期间不出现操作条，结束后带 `y: 4 → 0` 淡入；内置复制 / 重新生成 / 有帮助 / 无帮助，`extraActions` 插槽追加本项目的删除与「模型 · 时间」；`labels` 换成中文；`contentClassName` 只调字号，排版仍交给 `.md` |
 | 输入条 | `src/components/chat/Composer.tsx` + `src/components/agents/prompt-input.tsx` | beui prompt-input 承载 textarea 与工具带：正文独占一行，下方工具带左侧是当前模型档案的 Select（选中即 `setActiveModel`，替代设置抽屉里原来的「设为当前」）、右侧发送 / 停止（图标切换动效 + 微弱投影）；快捷语与 token 估算留在卡片顶部，回车行为受 `settings.enterToSend` 控制。卡片投影走 `shadow-float-soft`（比抽屉 / 弹窗的 `shadow-float` 更贴边、更浅），焦点态用 `shadow-focus-soft` |
@@ -166,7 +167,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传参考图打 `/v1/images/edits` —— 一张用 `image`，多张用 `image[]`（gpt-image-1 系），被 4xx 拒掉时把三视图横向拼成一张再试一次；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 2:3 再压成 800×1200 WebP，抓不到（CORS / 外链）就退回原链接 |
 | 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` / `composeReferenceSheet()` | 生成图：按 2:3 居中 cover 裁切后压成 800×1200 WebP 0.86，超体积再降一档 600×900 / 0.72；三视图参考图**不裁切**，只按长边 1280 等比缩小压，避免把侧身 / 背面的轮廓裁掉；多图被网关拒时横向拼一张（contain，留边不裁内容） |
 | 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（上限 4，换会话即清空），避免并发把接口打到限流；底图恒定取角色卡的三视图（`image_seeds`），不放链；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
-| 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 2:3 竖图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是外层 940 内容列）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
+| 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 2:3 竖图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是整个内容区——桌面上内容区还要先扣掉 304 宽的左栏）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
 | 图库 | 同上 `ImageGallery` | 按气泡分组列出全部版本，可点选 / 删除 | 这是「中途演化的图不能丢」的落脚点：组件一次只显示一组，历史都在这里 |
 
 ---
@@ -189,7 +190,7 @@ RP-Studio/
 ├─ docs/                        # 界面截图
 └─ src/
    ├─ main.tsx                  # 入口：并行启动 DB + 挂载 App（App 内有启动/错误态）
-   ├─ App.tsx                   # 背景层 + 940px 内容列 + 抽屉编排 + 主题监听
+   ├─ App.tsx                   # 背景层 + 左栏/内容列两栏铺满 + 抽屉编排 + 主题监听
    ├─ index.css                 # 设计令牌、全局样式、Markdown 排版、关键帧
    ├─ lib/
    │  ├─ types.ts               # 领域类型：Character / Session / Message / ContextBlock / Workflow

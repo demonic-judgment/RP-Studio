@@ -16,6 +16,8 @@ import { Modal } from "../ui/Modal";
 
 /** 聊天正文列的宽度上限，和 MessageList 里那个 max-w-[760px] 保持一致 */
 const THREAD_MAX = 760;
+/** 桌面端左侧边栏宽度，和 Sidebar 的 w-[304px] 保持一致 */
+const SIDEBAR_WIDTH = 304;
 const MIN_WIDTH = 180;
 /** 画面是 2:3 竖图：高度恒等于宽度 × 1.5，缩放只改一个数 */
 const ASPECT = 1.5;
@@ -45,18 +47,19 @@ function clampBox(
 
 /**
  * 找不到聊天正文列时的兜底宽度：
- * App 的外层列最多 940，正文列左右各有内边距（sm 起 24px），再被 max-w-760 卡住。
+ * 桌面端先是 304 宽的左栏，剩下的才是内容列；正文列左右各有内边距（sm 起 24px），
+ * 再被 max-w-760 卡住。
  */
 function fallbackThreadWidth(): number {
-  const column = Math.min(window.innerWidth, 940);
+  const sidebar = window.innerWidth >= 1024 ? SIDEBAR_WIDTH : 0;
   const padding = window.innerWidth < 640 ? 32 : 48;
-  return Math.min(column - padding, THREAD_MAX);
+  return Math.min(window.innerWidth - sidebar - padding, THREAD_MAX);
 }
 
 /**
- * 默认宽 = 聊天正文列的一半，而不是外层内容列的一半。
- * 正文列是气泡实际占用的那一条（max-w-760），外层 940 还包着内边距，
- * 按 940 算会让缩略图看起来比聊天气泡宽一大截。
+ * 默认宽 = 聊天正文列的一半，而不是整个内容区的一半。
+ * 正文列是气泡实际占用的那一条（max-w-760），内容区在桌面上还要先扣掉左栏，
+ * 按内容区算会让缩略图看起来比聊天气泡宽一大截。
  */
 function initialBox(saved?: ImageWidgetGeometry): ImageWidgetGeometry {
   const thread = document.querySelector<HTMLElement>("[data-chat-thread]");

@@ -1,17 +1,20 @@
 import { useEffect } from "react";
 import { useStore } from "./lib/store";
+import { useWideLayout } from "./lib/hooks/use-wide-layout";
 import { applyTheme, watchSystemTheme } from "./lib/theme";
 import { cn } from "./lib/utils";
 import { Backdrop } from "./components/home/Backdrop";
 import { ChatView } from "./components/chat/ChatView";
 import { ImageStage } from "./components/image/ImageStage";
 import { LeftDrawer } from "./components/drawers/LeftDrawer";
+import { Sidebar } from "./components/drawers/Sidebar";
 import { SettingsDrawer } from "./components/drawers/SettingsDrawer";
 import { CharacterDrawer } from "./components/drawers/CharacterDrawer";
 import { Toasts } from "./components/ui/Toasts";
 import { Button } from "./components/ui/Button";
 
 export default function App() {
+  const wide = useWideLayout();
   const ready = useStore((s) => s.ready);
   const initError = useStore((s) => s.initError);
   const init = useStore((s) => s.init);
@@ -77,12 +80,15 @@ export default function App() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div className="relative flex h-full w-full overflow-hidden">
       <Backdrop />
+
+      {/* 两个容器并排撑满整页：桌面端左栏常驻，窄屏左栏让位给抽屉 */}
+      {wide ? <Sidebar /> : null}
 
       <div
         className={cn(
-          "relative mx-auto flex h-full w-full max-w-[940px] flex-col overflow-hidden sm:shadow-column",
+          "relative flex h-full min-w-0 flex-1 flex-col overflow-hidden",
           hasBackground
             ? "bg-surface/45 backdrop-blur-xl backdrop-saturate-150"
             : "bg-surface/55 backdrop-blur-[2px]",
@@ -94,7 +100,7 @@ export default function App() {
       {/* 悬浮画面：开关打开时才出现，可拖拽 / 缩放，压在抽屉之下 */}
       <ImageStage />
 
-      <LeftDrawer />
+      {wide ? null : <LeftDrawer />}
       <SettingsDrawer />
       <CharacterDrawer />
       <Toasts />
