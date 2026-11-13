@@ -1,11 +1,11 @@
 import type { ImageProfile } from "./types";
 import { normalizeEndpoint } from "./settings";
 import { safeJsonParse } from "./utils";
-import { composeReferenceSheet, dataUrlToBlob, prepareGeneratedImage } from "./image";
+import { dataUrlToBlob, prepareGeneratedImage } from "./image";
 
 /**
  * 绘图请求：默认走 OpenAI 兼容的图生图（multipart 打 /v1/images/edits，
- * 三视图参考图作为文件上传）。文生图只是没有底图时的退路，走 JSON /v1/images/generations。
+ * 角色底图作为单张文件上传）。文生图只是没有底图时的退路，走 JSON /v1/images/generations。
  *
  * 参数 JSON 是「请求体」的同义词：JSON 模式整体作为 body，multipart 模式逐字段
  * 写进表单（对象/数组序列化成 JSON 字符串）。应用只额外注入 prompt 与 image。
@@ -15,7 +15,7 @@ export interface ImageRequest {
   config: ImageProfile;
   prompt: string;
   /**
-   * 三视图参考图（data URL 或 http(s) 链接），顺序即 正 / 侧 / 背。
+   * 角色底图（data URL 或 http(s) 链接），只用第一张。
    * 文生图可为空；图生图至少要有一张。
    */
   baseImages?: string[];
@@ -120,8 +120,8 @@ function readErrorMessage(text: string, status: number): string {
 }
 
 /**
- * 三视图是固定的一组图：解出来的 Blob 缓存住，重画 / 连续几轮都不用再解一次。
- * 用 Map 而不是单个变量：一组最多三张，按 URL 命中。
+ * 底图是固定的一张：解出来的 Blob 缓存住，重画 / 连续几轮都不用再解一次。
+ * 用 Map 而不是单个变量：切角色卡时换图，按 URL 命中。
  */
 const blobCache = new Map<string, Blob>();
 const BLOB_CACHE_LIMIT = 6;
@@ -149,13 +149,12 @@ function blobName(blob: Blob): string {
 }
 
 /**
- * 图生图的表单：一张参考图用 `image`（所有网关都认），多张用 `image[]`
- * （gpt-image-1 系的多图入参）。params 里的字段原样铺进去，最后覆盖 prompt。
+ * 图生图的表单：只有一张参考图，字段名固定 `image`（所有网关都认）。
+ * params 里的字段原样铺进去，最后覆盖 prompt。
  */
 function buildEditForm(params: Record<string, unknown>, prompt: string, blobs: Blob[]): FormData {
   const form = new FormData();
-  const field = blobs.length > 1 ? "image[]" : "image";
-  for (const blob of blobs) form.append(field, blob, blobName(blob));
+  for (const blob of blobs) form.append("image", blob, blobName(blob));
   for (const [key, value] of Object.entries(params)) {
     if (value == null || key === "prompt" || key === "image" || key === "image[]") continue;
     if (typeof value === "string") {
@@ -183,32 +182,19 @@ export async function requestImage({
 
   let res: Response;
   if (config.mode === "edit") {
-    const sources = (baseImages ?? []).filter((src) => Boolean(src && src.trim()));
-    if (!sources.length) {
-      throw new Error("图生图需要底图：在角色卡里上传三视图参考图，或把生图档案切成文生图");
+    const source = (baseImages ?? []).find((src) => Boolean(src && src.trim())) ?? "";
+    if (!source) {
+      throw new Error("图生图需要底图：在角色卡里上传一张正面全身照的底图，或把生图档案切成文生图");
     }
-    const blobs = await Promise.all(sources.map(sourceToBlob));
+    const blob = await sourceToBlob(source);
     const headers = config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined;
-    const send = (files: Blob[]) =>
-      fetch(endpoint, {
-        method: "POST",
-        // 不要手写 Content-Type：multipart 的 boundary 由浏览器补
-        headers,
-        body: buildEditForm(params, prompt, files),
-        signal,
-      });
-
-    res = await send(blobs);
-    /**
-     * 多图入参是 gpt-image-1 起的扩展，不少中转网关只认单文件 `image`。
-     * 被 4xx 拒掉时把三视图横向拼成一张再试一次 —— 与其让用户对着
-     * 「unexpected field image[]」自己猜，不如自动退一步。
-     */
-    if (!res.ok && blobs.length > 1 && res.status >= 400 && res.status < 500) {
-      await res.text().catch(() => "");
-      const sheet = await composeReferenceSheet(blobs);
-      if (sheet) res = await send([sheet]);
-    }
+    res = await fetch(endpoint, {
+      method: "POST",
+      // 不要手写 Content-Type：multipart 的 boundary 由浏览器补
+      headers,
+      body: buildEditForm(params, prompt, [blob]),
+      signal,
+    });
   } else {
     if (!model) throw new Error("生图参数里缺少 model，无法发起请求");
     res = await fetch(endpoint, {

@@ -20,9 +20,9 @@ const IMAGE_WIDTH = 800;
 const IMAGE_HEIGHT = 1200;
 /** 压完的体积上限，超了再降一档（WebP 字符数，约 900KB 原图） */
 const IMAGE_MAX_CHARS = 900_000;
-/** 三视图参考图长边：要看清服装与五官细节，比生成图留得大一点 */
+/** 角色底图长边：要看清服装与五官细节，比生成图留得大一点 */
 const REFERENCE_EDGE = 1280;
-/** 单张参考图的体积上限（WebP 字符数，约 450KB 原图）；三张加起来别把角色行撑太沉 */
+/** 单张底图的体积上限（WebP 字符数，约 450KB 原图） */
 const REFERENCE_MAX_CHARS = 600_000;
 
 interface Decoded {
@@ -68,10 +68,10 @@ export async function prepareGeneratedImage(blob: Blob): Promise<string> {
 }
 
 /**
- * 三视图参考图：**不裁切**，只按长边等比缩小 + 转 WebP。
+ * 角色底图：**不裁切**，只按长边等比缩小 + 转 WebP。
  *
  * 参考图不是拿来填画面框的，是给模型看「这个人长什么样」——按 2:3 裁掉两侧
- * 可能正好裁掉侧身/背面那张里的轮廓线，得不偿失。等比缩放后模型能拿到完整信息，
+ * 可能正好裁掉发型、肩线或手里的道具，得不偿失。等比缩放后模型能拿到完整信息，
  * 画面比例本来就在 prompt 与 size 参数里约束。
  */
 export async function prepareReferenceImage(file: File): Promise<string> {
@@ -82,34 +82,6 @@ export async function prepareReferenceImage(file: File): Promise<string> {
   const second = encode(decoded, 1024, 0.72);
   if (second.length <= REFERENCE_MAX_CHARS) return second;
   throw new Error("这张图压不进参考图体积上限，换一张分辨率低一点的");
-}
-
-/**
- * 多张参考图 → 一张横向「三视图」拼图。
- *
- * 用在网关不认 multipart 多文件（`image[]`）的退路上：把面部大图 / 正面 / 背面并排
- * 画进一张图，再当单张底图上传。每张按 contain 放进自己的格子（留边不裁），
- * 宁可留黑边也别把侧身的轮廓裁掉；总宽压到 2400 以内，再大只是上传变慢。
- */
-export async function composeReferenceSheet(blobs: Blob[]): Promise<Blob | null> {
-  const list = blobs.filter((blob) => blob.type.startsWith("image/"));
-  if (list.length === 0) return null;
-  if (list.length === 1) return list[0];
-  try {
-    const decoded = await Promise.all(list.map((blob) => loadImage(blob)));
-    const cellWidth = Math.min(800, Math.floor(2400 / decoded.length));
-    const cellHeight = Math.round(cellWidth * 1.5);
-    const ctx = canvasOf(cellWidth * decoded.length, cellHeight);
-    ctx.imageSmoothingQuality = "high";
-    ctx.fillStyle = "#0f1115";
-    ctx.fillRect(0, 0, cellWidth * decoded.length, cellHeight);
-    decoded.forEach((image, index) => {
-      drawContain(ctx, image, index * cellWidth, 0, cellWidth, cellHeight);
-    });
-    return await canvasToBlob(ctx.canvas);
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -202,47 +174,6 @@ function drawCover(
   const sourceX = (image.width - sourceWidth) / 2;
   const sourceY = (image.height - sourceHeight) / 2;
   ctx.drawImage(image.source, sourceX, sourceY, sourceWidth, sourceHeight, dx, dy, width, height);
-}
-
-/** 等比缩进目标矩形并居中，多余部分留底色 —— 参考拼图用，宁留边不裁内容 */
-function drawContain(
-  ctx: CanvasRenderingContext2D,
-  image: Decoded,
-  dx: number,
-  dy: number,
-  width: number,
-  height: number,
-): void {
-  const scale = Math.min(width / image.width, height / image.height);
-  const drawWidth = image.width * scale;
-  const drawHeight = image.height * scale;
-  ctx.drawImage(
-    image.source,
-    dx + (width - drawWidth) / 2,
-    dy + (height - drawHeight) / 2,
-    drawWidth,
-    drawHeight,
-  );
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, quality = 0.86): Promise<Blob | null> {  return new Promise((resolve) => {
-    canvas.toBlob(
-      (blob) => {
-        // 老 Safari 不支持 webp 时会回调 null / 空 blob，退回 JPEG
-        if (blob && blob.size > 0) {
-          resolve(blob);
-          return;
-        }
-        try {
-          resolve(dataUrlToBlob(canvas.toDataURL("image/jpeg", quality)));
-        } catch {
-          resolve(null);
-        }
-      },
-      "image/webp",
-      quality,
-    );
-  });
 }
 
 function canvasOf(width: number, height: number): CanvasRenderingContext2D {

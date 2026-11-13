@@ -75,9 +75,9 @@ const asObject = <T>(v: unknown, fallback: T): T =>
   v && typeof v === "object" ? (v as T) : fallback;
 
 /**
- * 三视图槽位：数组下标就是视图（正 / 侧 / 背），空槽用 `""` 占位，
- * 所以只过滤非字符串，不压缩数组 —— 否则「只传了背面」会被读成面部大图。
- * 老数据只有单张 image_seed 时当成正面。
+ * 角色底图槽位：现在只用第一张（正面全身照）。
+ * 老数据里可能是「正 / 侧 / 背」三张，空槽用 `""` 占位，所以保留数组原样读出，
+ * 由调用方取第一张非空的；老列 `image_seed` 只有单张时当第一张。
  */
 function asImageSeeds(value: unknown, legacy: string | null | undefined): string[] {
   const slots = Array.isArray(value)

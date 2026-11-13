@@ -92,6 +92,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | `zustand` `^5.1.0` | `src/lib/store.ts` | 全局状态与全部 action | 模块级 `initStarted` 防重复初始化、`abortController` 支持停止生成；`navigator.storage.persist()` 申请持久化；流式只在内存累积，结束才落库 |
 | `src/lib/types.ts` | — | 领域类型单一事实来源 | `ChatMessage`（只有 role/content）与 `Message`（DB 行，含 status/meta）严格区分 |
 | `src/data/seed.ts` | — | 首次启动的三个示例角色 | 含示例工作流与脚本；`greeting` 里带 `{{user}}` |
+| `src/data/image-preset.json` | `src/lib/image-presets.ts` | 生图默认预设：JSON 指令、默认编排、预览样例句 | 用户直接改这个 JSON；读取端只做类型归位与兜底（缺 `prompt` 块自动补回）|
 
 ### 2.3 模型与编排
 
@@ -158,15 +159,15 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 
 ### 2.8 生图链路
 
-> 目标不是「按一下出一张图」，而是**边聊边变**：角色每条回复顺带一句绘图提示词，画面以气泡为单位换一幕。底图固定为角色卡里那组三视图，不叠加上一轮的结果 —— 长相不会随着聊得越久越漂。
+> 目标不是「按一下出一张图」，而是**边聊边变**：角色每条回复顺带一句绘图提示词，画面以气泡为单位换一幕。底图固定为角色卡里那一张（正面全身照单图），不叠加上一轮的结果 —— 长相不会随着聊得越久越漂。
 
 | 环节 | 入口文件 | 职责 | 关键决策 |
 | --- | --- | --- | --- |
 | 提示词摘取 | `src/lib/image-prompt.ts` | `extractImagePrompt()`：从回复正文里找出绘图 JSON（围栏或裸对象），返回「去掉 JSON 的正文 + 提示词 + 是否还有未闭合片段」 | 五档容错解析（原样 → 全角标点 → 裸换行转义 → 去尾逗号 → 裸键名）+ `scrapePrompt()` 抠句子兜底；全角标点只在结构位替换，字符串内的中文标点不动；括号配对带字符串状态机，围栏内不参与裸扫描，配对失败只前进一格；流式途中未闭合的围栏 / `{` 一旦看着像绘图 JSON 就截掉 |
 | 提示词编排 | `src/lib/image-prompt.ts` | `assembleImagePrompt()`：按有序块拼最终 prompt | 块类型 `character`（角色名 / 简介 / 描述）、`text`（硬编码，支持 `{{char}}` / `{{user}}` / `{{prompt}}`）、`prompt`（模型给的那句插入点）；块之间用换行连接，全部禁用 / 为空时退回模型原文 |
-| 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传参考图打 `/v1/images/edits` —— 一张用 `image`，多张用 `image[]`（gpt-image-1 系），被 4xx 拒掉时把三视图横向拼成一张再试一次；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 2:3 再压成 800×1200 WebP，抓不到（CORS / 外链）就退回原链接 |
-| 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` / `composeReferenceSheet()` | 生成图：按 2:3 居中 cover 裁切后压成 800×1200 WebP 0.86，超体积再降一档 600×900 / 0.72；三视图参考图**不裁切**，只按长边 1280 等比缩小压，避免把侧身 / 背面的轮廓裁掉；多图被网关拒时横向拼一张（contain，留边不裁内容） |
-| 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（上限 4，换会话即清空），避免并发把接口打到限流；底图恒定取角色卡的三视图（`image_seeds`），不放链；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
+| 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传底图打 `/v1/images/edits` —— 字段名固定 `image`（所有网关都认），只传一张；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 2:3 再压成 800×1200 WebP，抓不到（CORS / 外链）就退回原链接 |
+| 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` | 生成图：按 2:3 居中 cover 裁切后压成 800×1200 WebP 0.86，超体积再降一档 600×900 / 0.72；角色底图**不裁切**，只按长边 1280 等比缩小压，避免裁掉发型 / 肩线 / 道具 |
+| 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（上限 4，换会话即清空），避免并发把接口打到限流；底图恒定取角色卡 `image_seeds` 的第一张（老数据里的多张也只认第一张），不放链；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
 | 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 2:3 竖图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是整个内容区——桌面上内容区还要先扣掉 304 宽的左栏）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
 | 图库 | 同上 `ImageGallery` | 按气泡分组列出全部版本，可点选 / 删除 | 这是「中途演化的图不能丢」的落脚点：组件一次只显示一组，历史都在这里 |
 
@@ -227,7 +228,9 @@ RP-Studio/
    │  ├─ character/ContextEditor.tsx
    │  ├─ script/ScriptEditor.tsx
    │  └─ workflow/WorkflowEditor.tsx
-   └─ data/seed.ts              # 首次启动的三个示例角色
+   └─ data/
+      ├─ seed.ts               # 首次启动的三个示例角色
+      └─ image-preset.json     # 生图默认预设（JSON 指令 / 默认编排 / 预览例句）
 ```
 
 ---
@@ -239,7 +242,7 @@ RP-Studio/
 ```sql
 characters(
   id uuid pk, name text, avatar text, tagline text, description text,
-  greeting text, image_seeds jsonb, -- 三视图参考图 ["面部大图","正面","背面"]（data URL / 外链，可留空槽）
+  greeting text, image_seeds jsonb, -- 角色底图 ["正面全身照"]（data URL / 外链；数组只为兼容老的多槽位数据）
   image_seed text, -- 旧版单张底图，保留只为兼容旧备份，读写时当兜底
   system_prompt text, context_blocks jsonb, quick_phrases jsonb,
   workflow jsonb, script text, model_override jsonb, -- 旧版角色级模型覆盖，现不使用
@@ -362,9 +365,13 @@ return { text: "已注入提示", messages: ctx.messages };
   ```
 
   块之间用换行连接；全部禁用 / 为空时退回模型给的原文，绝不发空 prompt。**角色外形不再单独成块**——需要角色名时用 `{{char}}`，需要固定外观就写进硬编码块。
-- **请求**：生图档案 = `endpoint` + `apiKey` + `params`(JSON) + `mode`。`mode: "edit"`（默认）走 multipart，参考图是文件、`prompt` 是拼装结果，其余参数逐字段进表单：只有一张时字段名是 `image`（所有网关都认），三张时用 `image[]`（gpt-image-1 起支持）；多图被 4xx 拒掉会自动把三视图横向拼成一张单图重试。`mode: "generate"`（不建议）整体 JSON 作为请求体。比例固定 **2:3 竖图**，默认 `size: 1024x1536`（老档案里的 `1024x1024` 在规范化时静默升级）。
-- **裁切压缩**：接口返回的图不管什么比例，落库前都按 2:3 居中 cover 裁切（短边铺满、长边居中截掉），再压成 800×1200 WebP；超过体积上限再降一档到 600×900 / 0.72 画质。三视图参考图走另一条链路：**不裁切**，只按长边 1280 等比缩小压成 WebP —— 参考图是给模型看人长什么样的，裁掉两侧可能正好裁掉侧身 / 背面的轮廓。
-- **底图固定**：不再链式演化。所有图都以角色卡的 `image_seeds`（三视图：面部大图 / 正面 / 背面，可只传其中几张，空槽存 `""` 以保住视图位置）为参考，画面差异只来自提示词；重新生图的多个版本因此天然处在同一起点。入口是角色卡基础页的三个上传槽，存之前去掉尾部空槽、中间空槽保留。没传参考图又选了图生图会直接提示去上传，不会偷偷退化成文生图。`image_seed` 旧列保留不删，只在读老数据 / 导入旧备份时当兜底。
+- **预设**：默认的「生图 JSON 指令」「默认编排」「预览样例句」都在 `src/data/image-preset.json`，改完即可（开发服务器热更新，线上要重新构建）。`src/lib/image-presets.ts` 只负责读取与兜底：`prompt` 块缺失会自动补回，字段写坏会退回内置文案并在控制台警告。这份只是**默认值**——已存在的角色卡 / 设置里存的是各自的副本，不受影响；新建角色卡、或给旧数据补块时才取它。
+- **请求**：生图档案 = `endpoint` + `apiKey` + `params`(JSON) + `mode`。`mode: "edit"`（默认）走 multipart，角色底图是文件、`prompt` 是拼装结果，其余参数逐字段进表单；底图固定单张、字段名 `image`（所有网关都认）。`mode: "generate"`（不建议）整体 JSON 作为请求体。比例固定 **2:3 竖图**，默认 `size: 1024x1536`（老档案里的 `1024x1024` 在规范化时静默升级）。
+- **裁切压缩**：接口返回的图不管什么比例，落库前都按 2:3 居中 cover 裁切（短边铺满、长边居中截掉），再压成 800×1200 WebP；超过体积上限再降一档到 600×900 / 0.72 画质。角色底图走另一条链路：**不裁切**，只按长边 1280 等比缩小压成 WebP —— 参考图是给模型看人长什么样的，裁掉两侧可能正好裁掉发型、肩线或手里的道具。
+- **底图固定**：不再链式演化。所有图都以角色卡 `image_seeds` 的第一张（正面全身照单图）为参考，画面差异只来自提示词；重新生图的多个版本因此天然处在同一起点。
+  - 为什么只留一张：给多角度参考时模型会在几个朝向之间折中，脸和身材反而更容易跑偏；正面全身一张的效果实测最好。
+  - 底图建议洗成西装、古风汉服这类「模型没有服装约束时的默认设定」——具体选哪种跟接入的模型和角色时代有关，需要自己试；底图本身带着长期要保留的那身衣服时，后续换装换动作最稳。
+  - 入口是角色卡基础页的一个上传框，存的是单元素数组（老数据里的多槽位只取第一张）。没传底图又选了图生图会直接提示去上传，不会偷偷退化成文生图。`image_seed` 旧列保留不删，只在读老数据 / 导入旧备份时当兜底。
 - **调度**：绘图请求慢于聊天，撞上正在画时排队（上限 4），换会话清空队列——那些任务绑的是上一个会话的气泡，留着只会画到没人在看的对话上。
 
 ---

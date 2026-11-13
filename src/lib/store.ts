@@ -520,21 +520,26 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     /**
-     * 底图不随对话滚动：所有图都以角色卡的**三视图底图**为参考重新画，画面变化只来自提示词。
+     * 底图不随对话滚动：所有图都以角色卡的**那一张底图**为参考重新画，画面变化只来自提示词。
      * 之前是「上一张 → 下一张」的链式演化，问题在于每轮都会继承上一张的构图与画风偏差，
-     * 于是同一角色越画越偏、还回不去；固定三视图后每个气泡都是同一张脸 + 不同的那一幕，
+     * 于是同一角色越画越偏、还回不去；固定底图后每个气泡都是同一张脸 + 不同的那一幕，
      * 重新生图的多个版本也因此天然处在同一起点。
-     * 三张（正 / 侧 / 背）一起上传，模型能从多个角度对齐发型、服装与体型。
+     *
+     * 只取第一张：正面全身照单图的效果明显好过多角度三视图 ——
+     * 给模型多张参考时它反而会在几个朝向之间折中，脸与身材更容易跑偏。
+     * 老角色卡里存着的三张也只认第一张。
      * `opts.baseImageId` 只作为显式覆盖保留（目前没有 UI 入口）。
      */
     const baseRecord = opts?.baseImageId ? images.find((img) => img.id === opts.baseImageId) : undefined;
-    const baseImages = baseRecord ? [baseRecord.url] : character.imageSeeds.filter((src) => Boolean(src));
+    const baseImages = baseRecord
+      ? [baseRecord.url]
+      : character.imageSeeds.filter((src) => Boolean(src)).slice(0, 1);
 
     const profile = activeImageProfile(settings);
     if (profile.mode === "edit" && baseImages.length === 0) {
       get().toast({
         title: "图生图缺少底图",
-        description: "在角色卡基础页上传三视图参考图（至少一张），或把生图档案切成文生图",
+        description: "在角色卡基础页上传一张正面全身照的底图，或把生图档案切成文生图",
         variant: "error",
       });
       drainImageQueue();

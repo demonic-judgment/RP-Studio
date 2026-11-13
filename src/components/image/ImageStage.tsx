@@ -173,7 +173,7 @@ export function ImageStage() {
     return group.images.find((img) => img.id === imageView?.imageId) ?? group.images[group.images.length - 1];
   }, [group, imageView]);
   const variantIndex = current && group ? group.images.findIndex((img) => img.id === current.id) : -1;
-  // 还没有生成图时，先拿三视图里第一张有图的当预览（通常是正面）
+  // 还没有生成图时，先拿角色底图当预览
   const seedUrl = character?.imageSeeds?.find((src) => Boolean(src)) ?? "";
   const displayUrl = current?.url ?? seedUrl;
   const isSeedOnly = !current && Boolean(seedUrl);
@@ -236,7 +236,7 @@ export function ImageStage() {
             </span>
             <p className="px-4 text-[12px] font-medium text-fg-muted">还没有画面</p>
             <p className="px-5 text-[11px] leading-relaxed text-fg-subtle">
-              先在角色卡里传三视图（面部大图 / 正面 / 背面），再开始对话 —— 画面会跟着每轮回复变化。
+              先在角色卡里传一张正面全身照的底图，再开始对话 —— 画面会跟着每轮回复变化。
             </p>
           </div>
         )}
@@ -258,7 +258,7 @@ export function ImageStage() {
 
         {isSeedOnly && !running && (
           <span className="pointer-events-none absolute left-2.5 top-2.5 rounded-full bg-black/35 px-2 py-0.5 text-[10px] text-white/90 backdrop-blur-sm">
-            三视图底图
+            角色底图
           </span>
         )}
 

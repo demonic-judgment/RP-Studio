@@ -7,6 +7,7 @@ import {
   DEFAULT_IMAGE_PARAMS,
   activeImageProfile,
   createImageProfile,
+  defaultImagePromptBlocks,
   endpointHost,
   imageEndpointFor,
   normalizeEndpoint,
@@ -91,7 +92,7 @@ export function ImageSettings() {
             图生图
           </p>
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-            建议先给角色卡传好三视图底图，画面才稳。关掉后不生成图片，也不显示悬浮画面。
+            建议先给角色卡传好一张正面全身照的底图 —— 双手双脚完整入画、脑袋正对前方，画面才稳。关掉后不生成图片，也不显示悬浮画面。
             想换画风或构图，改下面的编排；想改「让角色返回 JSON」的约定，去角色卡的「提示词编排」。
           </p>
         </div>
@@ -231,7 +232,16 @@ export function ImageSettings() {
       </div>
 
       <div className="rounded-2xl bg-surface-2 p-inset-sm">
-        <p className="mb-3 text-[12.5px] font-medium text-fg">生图提示词编排</p>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-[12.5px] font-medium text-fg">生图提示词编排</p>
+          <button
+            type="button"
+            onClick={() => void setSettings({ imagePromptBlocks: defaultImagePromptBlocks() })}
+            className="text-[11px] text-fg-subtle transition-colors hover:text-primary"
+          >
+            恢复默认
+          </button>
+        </div>
         <ImagePromptEditor
           blocks={settings.imagePromptBlocks}
           onChange={(imagePromptBlocks) => void setSettings({ imagePromptBlocks })}
@@ -241,7 +251,7 @@ export function ImageSettings() {
       </div>
 
       <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-        画面固定按 2:3 竖图出。没有参考图时图生图会直接报错 —— 先在角色卡里上传至少一张三视图底图。
+        画面固定按 2:3 竖图出。没有底图时图生图会直接报错 —— 先在角色卡里上传一张正面全身照的底图。
       </p>
 
       <Modal

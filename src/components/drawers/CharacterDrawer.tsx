@@ -26,10 +26,10 @@ type TabId = "basic" | "context" | "workflow" | "script" | "phrases";
 
 const AVATARS = ["🎭", "🌙", "🛰️", "🕯️", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "🗡️", "👑", "🌊"];
 
-/** 三视图槽位：下标即视图，跟 Character.imageSeeds 一一对应 */
-const VIEW_LABELS = ["面部大图", "正面", "背面"] as const;
+/** 底图只留一张：正面全身最稳，多角度参考反而会把脸与身材拉偏 */
+const SEED_LABEL = "正面全身照";
 
-/** 存之前去掉尾部空槽，中间的空槽要留着 —— 视图位置不能挪 */
+/** 存之前去掉尾部空槽；`imageSeeds` 仍是数组，老数据里的多张只认第一张 */
 function trimSeeds(seeds: string[]): string[] {
   const next = [...(seeds ?? [])];
   while (next.length && !next[next.length - 1]) next.pop();
@@ -59,8 +59,6 @@ export function CharacterDrawer() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingSeed, setUploadingSeed] = useState(false);
-  /** 这次点的是哪个视图槽位；选中的多张从这里往后依次填 */
-  const [seedSlot, setSeedSlot] = useState(0);
   const seedInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,20 +86,16 @@ export function CharacterDrawer() {
 
   const patch = (value: Partial<Character>) => setDraft({ ...draft, ...value });
 
-  const seeds = draft.imageSeeds ?? [];
+  // 老角色卡可能还存着三张（正 / 侧 / 背）：只认第一张，多余的槽位在保存时自然被裁掉
+  const seed = (draft.imageSeeds ?? []).find((src) => Boolean(src)) ?? "";
 
-  /** 一次最多选三张：从点中的槽位往后填，剩下的槽位保持原样 */
-  const handleSeedUpload = async (files: FileList | null, start: number) => {
-    const picked = Array.from(files ?? []).slice(0, VIEW_LABELS.length - start);
+  const handleSeedUpload = async (files: FileList | null) => {
+    const picked = Array.from(files ?? []).slice(0, 1);
     if (!picked.length) return;
     setUploadingSeed(true);
     try {
-      const prepared = await Promise.all(picked.map((file) => prepareReferenceImage(file)));
-      const next = Array.from({ length: VIEW_LABELS.length }, (_, i) => seeds[i] ?? "");
-      prepared.forEach((data, offset) => {
-        next[start + offset] = data;
-      });
-      setDraft({ ...draft, imageSeeds: next });
+      const data = await prepareReferenceImage(picked[0]);
+      setDraft({ ...draft, imageSeeds: [data] });
     } catch (err) {
       toast({
         title: "底图读取失败",
@@ -113,11 +107,7 @@ export function CharacterDrawer() {
     }
   };
 
-  const clearSeed = (index: number) => {
-    const next = Array.from({ length: VIEW_LABELS.length }, (_, i) => seeds[i] ?? "");
-    next[index] = "";
-    setDraft({ ...draft, imageSeeds: next });
-  };
+  const clearSeed = () => setDraft({ ...draft, imageSeeds: [] });
 
   const requestClose = () => {
     if (dirty && !window.confirm("角色卡有未保存的修改，确定关闭？")) return;
@@ -245,67 +235,61 @@ export function CharacterDrawer() {
               </Field>
 
               <Field
-                label="三视图底图"
-                hint="建议同一画风的三张：面部特写、正面全身、背面。至少一张也能用，脸越清楚出图越稳"
+                label="角色底图"
+                hint="一张正面全身照最稳：双手双脚完整入画，脑袋正对前方、不要歪斜。建议事先洗一下底图，现代人物洗成全裸/西装与白色衬衫（接近模型没有约束下的默认设定），古风人物洗成白色轻纱汉服，这样换装换动作不容易跑形"
               >
-                <div className="grid grid-cols-3 gap-2">
-                  {VIEW_LABELS.map((label, index) => {
-                    const src = seeds[index] ?? "";
-                    return (
-                      <div key={label} className="space-y-1.5">
+                <div className="flex items-start gap-3">
+                  <div className="w-[116px] shrink-0 space-y-1.5">
+                    <button
+                      type="button"
+                      onClick={() => seedInputRef.current?.click()}
+                      disabled={uploadingSeed}
+                      title={seed ? "更换底图" : "上传底图"}
+                      className={cn(
+                        "group/slot relative flex aspect-[2/3] w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-2 text-fg-subtle transition-colors",
+                        seed
+                          ? "border-line hover:border-primary/40"
+                          : "border-dashed border-line/80 hover:border-primary/50 hover:text-fg-muted",
+                      )}
+                    >
+                      {seed ? (
+                        <img src={seed} alt="角色底图" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex flex-col items-center gap-1">
+                          <ImageIcon size={18} />
+                          <span className="text-[10.5px]">{uploadingSeed ? "处理中…" : "上传"}</span>
+                        </span>
+                      )}
+                      {seed && (
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/slot:opacity-100">
+                          <Upload size={16} className="text-white" />
+                        </span>
+                      )}
+                    </button>
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[11px] text-fg-subtle">{SEED_LABEL}</span>
+                      {seed && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setSeedSlot(index);
-                            seedInputRef.current?.click();
-                          }}
-                          disabled={uploadingSeed}
-                          title={src ? `更换${label}图` : `上传${label}图`}
-                          className={cn(
-                            "group/slot relative flex aspect-[2/3] w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-2 text-fg-subtle transition-colors",
-                            src
-                              ? "border-line hover:border-primary/40"
-                              : "border-dashed border-line/80 hover:border-primary/50 hover:text-fg-muted",
-                          )}
+                          onClick={clearSeed}
+                          className="text-[11px] text-fg-subtle transition-colors hover:text-danger"
                         >
-                          {src ? (
-                            <img src={src} alt={`${label}底图`} className="h-full w-full object-cover" />
-                          ) : (
-                            <span className="flex flex-col items-center gap-1">
-                              <ImageIcon size={18} />
-                              <span className="text-[10.5px]">{uploadingSeed ? "处理中…" : "上传"}</span>
-                            </span>
-                          )}
-                          {src && (
-                            <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/slot:opacity-100">
-                              <Upload size={16} className="text-white" />
-                            </span>
-                          )}
+                          移除
                         </button>
-                        <div className="flex items-center justify-between px-0.5">
-                          <span className="text-[11px] text-fg-subtle">{label}</span>
-                          {src && (
-                            <button
-                              type="button"
-                              onClick={() => clearSeed(index)}
-                              className="text-[11px] text-fg-subtle transition-colors hover:text-danger"
-                            >
-                              移除
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      )}
+                    </div>
+                  </div>
+                  <p className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-fg-subtle">
+                    图生图每轮都拿这张重新画，画面变化只来自提示词。底图上就带着你想长期保留的那身衣服时，后续换装、换动作最稳。
+                  </p>
                 </div>
                 <input
                   ref={seedInputRef}
                   type="file"
                   accept="image/*"
-                  multiple
                   className="hidden"
                   onChange={(event) => {
-                    void handleSeedUpload(event.target.files, seedSlot);
+                    void handleSeedUpload(event.target.files);
                     event.target.value = "";
                   }}
                 />

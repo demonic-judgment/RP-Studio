@@ -6,6 +6,7 @@ import type {
   Message,
 } from "./types";
 import { clamp, estimateTokens, uid } from "./utils";
+import { DEFAULT_IMAGE_DIRECTIVE } from "./image-presets";
 
 export function newBlockId() {
   return uid("blk");
@@ -29,24 +30,13 @@ export function defaultContextBlocks(systemPromptHint = ""): ContextBlock[] {
 }
 
 /**
- * 图生图开关打开时插进上下文的那条 system 指令。
+ * 生图 JSON 预设的正文在 `src/data/image-preset.json` 里，这里只做转出。
  * 它只负责「约定格式」，具体画面由聊天模型自己写；所以要能改 ——
  * 不同模型对代码块、键名的服从度不一样。
  *
  * 放在回复**开头**：JSON 一旦闭合就能先开画，正文继续往下打，两条线并行。
  */
-export const DEFAULT_IMAGE_DIRECTIVE = `【画面同步】每轮回复先输出一段 JSON 生图提示词，再写正文。JSON 用三个反引号加 json 的代码块包裹，共 4 个属性，简洁精确、术语化：
-\`\`\`json
-{
-"生图提示词": "
-表情：
-服饰：
-动作：
-核心物品：
-"
-}
-\`\`\`
-「生图提示词」只写画面本身：表情、服饰、动作、核心物品各占一行，以 {{char}} 为主体，五官与身材与三视图参考（面部大图 / 正面 / 背面）保持一致。这段 JSON 只用于生成画面，不要在正文里复述，也不要向 {{user}} 解释它的用途。`;
+export { DEFAULT_IMAGE_DIRECTIVE };
 
 /** 旧默认：整段被认出来的话，升级时换成上面那版（用户自己改过的不动） */
 const LEGACY_IMAGE_DIRECTIVE = `【画面同步】每轮回复的最后，追加一段 JSON（用三个反引号加 json 的代码块包裹），格式固定：
@@ -58,14 +48,23 @@ const LEGACY_ASPECT_TEXT = "正方形 1:1 构图";
 export const CURRENT_ASPECT_TEXT = "竖构图 2:3、人物居中偏上";
 
 /**
- * 底图口径的历代说法：从「一张底图」到「正面 / 侧面 / 背面」再到现在的
- * 「面部大图 / 正面 / 背面」。全都换到 CURRENT_VIEW_TEXT，老角色卡不用手工改。
+ * 底图口径的历代说法：一张底图 →「正面 / 侧面 / 背面」→「面部大图 / 正面 / 背面」
+ * →「正面证件照 / 侧面全身照 / 背面俯视照」→ 单张「正面 3/4 视角」→ 不再注入视角。
+ * 视角不再由预设写死：写死了就会顶掉用户自己编排里的构图（想要全身却一直被拉成 3/4），
+ * 现在只做减法 —— 把历代预设补进去的视图括号清掉，视角留给提示词编排自己写。
+ * 顺序：先清括号，再把「三视图参考」这种措辞收成「底图」。
  */
-const LEGACY_VIEW_TEXTS = [
-  "五官、发型与服装基调与底图保持一致",
-  "五官、发型与服装基调与三视图参考（正面 / 侧面 / 背面）保持一致",
+const DROPPED_VIEW_TEXTS = [
+  "（正面 / 侧面 / 背面）",
+  "（面部大图 / 正面 / 背面）",
+  "（正面证件照 / 侧面全身照 / 背面俯视照）",
+  "（正面 3/4 视角）",
 ];
-const CURRENT_VIEW_TEXT = "五官、发型与服装基调与三视图参考（面部大图 / 正面 / 背面）保持一致";
+const LEGACY_VIEW_TEXTS: Array<[legacy: string, current: string]> = [
+  ["基于三视图创作", "基于底图创作"],
+  ["三视图底图", "底图"],
+  ["三视图参考", "底图"],
+];
 
 /** 把老预设里的 1:1 换成 2:3；没命中就原样返回，可重复调用 */
 export function upgradeImageAspect(content: string): string {
@@ -75,16 +74,21 @@ export function upgradeImageAspect(content: string): string {
 }
 
 /**
- * 老预设 → 现行文案（比例 + 三视图）：可重复调用，用户自己改过的内容不动。
- * 整段还是上一代默认原文的，直接换成新版（JSON 挪到回复开头）。
+ * 老预设 → 现行文案（比例 + 底图口径）：可重复调用，用户自己改过的内容不动。
+ * 先整段比上一代默认原文（相等 = 没动过，直接换成新版：JSON 挪到回复开头），
+ * 再做短语替换。顺序不能反 —— 短语替换会改掉旧原文，之后就比不上了。
+ * 视图括号只删不补（替换目标不包含替换源，所以可以反复跑）。
  */
 export function upgradeImageDirective(content: string): string {
+  if (content.trim() === LEGACY_IMAGE_DIRECTIVE.trim()) return DEFAULT_IMAGE_DIRECTIVE;
   let next = upgradeImageAspect(content);
-  for (const legacy of LEGACY_VIEW_TEXTS) {
-    if (next.includes(legacy)) next = next.replace(legacy, CURRENT_VIEW_TEXT);
+  for (const phrase of DROPPED_VIEW_TEXTS) {
+    if (next.includes(phrase)) next = next.split(phrase).join("");
   }
-  // 短语替换完正好等于上一代默认原文：说明用户没动过，整段换成新版
-  return next.trim() === LEGACY_IMAGE_DIRECTIVE.trim() ? DEFAULT_IMAGE_DIRECTIVE : next;
+  for (const [legacy, current] of LEGACY_VIEW_TEXTS) {
+    if (next.includes(legacy)) next = next.split(legacy).join(current);
+  }
+  return next;
 }
 
 export function defaultImageDirectiveBlock(): ContextBlock {

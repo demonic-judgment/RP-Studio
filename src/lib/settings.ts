@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { safeJsonParse, uid } from "./utils";
 import { upgradeImageDirective } from "./context";
+import { DEFAULT_IMAGE_BLOCK_SPECS } from "./image-presets";
 
 /**
  * 新建档案时预置的四个参数：model 必填、stream 固定走流式、
@@ -155,28 +156,22 @@ export const DEFAULT_IMAGE_PROFILE: ImageProfile = createImageProfile({
 });
 
 /**
- * 生图提示词的默认块：画面基准 → 模型返回的提示词 → 负面约束。
+ * 生图提示词的默认块（内容来自 `src/data/image-preset.json`）：
+ * 画面基准 → 模型返回的提示词 → 负面约束。
  * 角色外形不再单独成块，需要时用 {{char}} 或直接在硬编码里写。
  */
 export function defaultImagePromptBlocks(): ImagePromptBlock[] {
-  return [
-    {
-      id: uid("ipb"),
-      kind: "text",
-      enabled: true,
-      label: "画面基准",
-      content:
-        "基于三视图创作，仅保留角色的五官和身材。保持画风一致。比例2:3，斜45度视角，半身。柔和光线，细节丰富。",
-    },
-    { id: uid("ipb"), kind: "prompt", enabled: true, label: "本轮生图提示词" },
-    {
-      id: uid("ipb"),
-      kind: "text",
-      enabled: true,
-      label: "负面约束",
-      content: "避免错误人体器官，避免错误方向结构位置",
-    },
-  ];
+  return DEFAULT_IMAGE_BLOCK_SPECS.map((spec) =>
+    spec.kind === "text"
+      ? {
+          id: uid("ipb"),
+          kind: "text" as const,
+          enabled: true,
+          label: spec.label,
+          content: spec.content ?? "",
+        }
+      : { id: uid("ipb"), kind: "prompt" as const, enabled: true, label: spec.label },
+  );
 }
 
 /** 上一代默认编排的第一块（「画风与构图」）长这样，用来认出「没动过的默认值」 */

@@ -87,9 +87,9 @@ export interface Character {
   /** 初始消息：新建会话时作为角色的第一条消息写入 */
   greeting: string;
   /**
-   * 三视图底图（data URL 或外链）：面部大图 / 正面 / 背面各一张，三个槽位与视图一一对应，
-   * 允许中间留空（`""`）。图生图每轮把有图的这几张一起当参考重新画，
+   * 角色底图（data URL 或外链）：一张正面全身照的图。图生图每轮拿它当参考重新画，
    * 不叠加上一张的结果 —— 画面变化只来自提示词，角色长相不会逐轮漂移。
+   * 仍是数组是为了兼容老数据：实际只用第一张非空的。
    */
   imageSeeds: string[];
   systemPrompt: string;
@@ -283,7 +283,7 @@ export interface MessageImage {
   prompt: string;
   /** 从回复 JSON 里取到的原始提示词，重新生图时复用它 */
   rawPrompt: string;
-  /** 这次用的底图；固定底图模式下通常为 null（表示用的是角色 `image_seeds` 那组三视图） */
+  /** 这次用的底图；固定底图模式下通常为 null（表示用的是角色 `image_seeds` 里那张底图） */
   baseImageId: string | null;
   url: string;
   model: string;

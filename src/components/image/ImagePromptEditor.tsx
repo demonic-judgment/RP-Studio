@@ -13,14 +13,11 @@ import {
 } from "lucide-react";
 import type { ImagePromptBlock } from "../../lib/types";
 import { assembleImagePrompt, imageBlockLabel } from "../../lib/image-prompt";
+import { IMAGE_SAMPLE_PROMPT } from "../../lib/image-presets";
 import { cn, uid } from "../../lib/utils";
 import { Button, IconButton } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 import { Switch } from "../ui/Form";
-
-/** 预览用的占位提示词：没有真实回复时也能看清拼装结果 */
-const SAMPLE_PROMPT =
-  "表情：嘴角微扬，眼神柔和\n服饰：白衬衫，袖口挽到小臂\n动作：侧身回头\n核心物品：咖啡杯";
 
 function newBlock(kind: ImagePromptBlock["kind"]): ImagePromptBlock {
   const id = uid("ipb");
@@ -65,13 +62,14 @@ export function ImagePromptEditor({
     onChange(blocks.map((block) => (block.id === id ? ({ ...block, ...value } as ImagePromptBlock) : block)));
   };
 
+  /** 预览用占位提示词：没有真实回复时也能看清拼装结果（样例句在 image-preset.json） */
   const preview = useMemo(
     () =>
       assembleImagePrompt({
         blocks,
         characterName: characterName || "（角色名）",
         userName,
-        prompt: SAMPLE_PROMPT,
+        prompt: IMAGE_SAMPLE_PROMPT,
       }),
     [blocks, characterName, userName],
   );
