@@ -7,53 +7,57 @@ import {
   Save,
   Trash2,
   Upload,
+  UserRound,
   Workflow as WorkflowIcon,
+  X,
 } from "lucide-react";
 import { useStore } from "../../lib/store";
 import { validateWorkflow } from "../../lib/workflow";
 import { prepareReferenceImage } from "../../lib/image";
-import type { Character, ContextBlock, QuickPhrase } from "../../lib/types";
+import type { ContextBlock, QuickPhrase, Space } from "../../lib/types";
 import { cn, uid } from "../../lib/utils";
 import { Drawer, DrawerHeader } from "../ui/Drawer";
 import { Button, IconButton } from "../ui/Button";
 import { Field, Input, Textarea, Switch } from "../ui/Form";
 import { Tabs } from "../ui/Tabs";
 import { ContextEditor } from "../character/ContextEditor";
+import { CharacterAvatar, characterSeed } from "../character/CharacterAvatar";
 import { ScriptEditor } from "../script/ScriptEditor";
 import { WorkflowEditor } from "../workflow/WorkflowEditor";
 
-type TabId = "basic" | "context" | "workflow" | "script" | "phrases";
+type TabId = "basic" | "characters" | "context" | "workflow" | "script" | "phrases";
 
-const AVATARS = ["🎭", "🌙", "🛰️", "🕯️", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "🗡️", "👑", "🌊"];
+const AVATARS = ["🎭", "🌧️", "🏮", "🛰️", "🕯️", "🗡️", "🏙️", "🌊", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "👑"];
 
-/** 底图只留一张：正面全身最稳，多角度参考反而会把脸与身材拉偏 */
-const SEED_LABEL = "正面全身照";
-
-/** 存之前去掉尾部空槽；`imageSeeds` 仍是数组，老数据里的多张只认第一张 */
+/** 存之前去掉空槽；列表本身保持用户上传的顺序 */
 function trimSeeds(seeds: string[]): string[] {
-  const next = [...(seeds ?? [])];
-  while (next.length && !next[next.length - 1]) next.pop();
-  return next;
+  return (seeds ?? []).filter((src, index, list) => Boolean(src) && list.indexOf(src) === index);
 }
 
-export function CharacterDrawer() {
-  const open = useStore((s) => s.drawer === "character");
+/**
+ * 空间设置：共享提示词、上下文编排、工作流、脚本、快捷语、底图库。
+ * 角色自己的东西（名字、开场白、专属提示词、用哪张底图）在角色编辑里。
+ */
+export function SpaceDrawer() {
+  const open = useStore((s) => s.drawer === "space");
   const openDrawer = useStore((s) => s.openDrawer);
-  const character = useStore((s) =>
-    s.characters.find((c) => c.id === s.activeCharacterId) ?? null,
-  );
+  const space = useStore((s) => s.spaces.find((item) => item.id === s.activeSpaceId) ?? null);
+  const characters = useStore((s) => s.characters);
+  const activeCharacterId = useStore((s) => s.activeCharacterId);
   const messages = useStore((s) => s.messages);
-  // 只订用得到的两个字段：订整份 settings 的话，设置抽屉里拖滑杆、改称呼
+  // 只订用得到的几个字段：订整份 settings 的话，设置抽屉里拖滑杆、改称呼
   // 都会把这个抽屉整棵树重渲染一遍（哪怕它是关着的）。
   const userName = useStore((s) => s.settings.userName);
   const imageEnabled = useStore((s) => s.settings.imageEnabled);
   const scriptTimeoutMs = useStore((s) => s.settings.scriptTimeoutMs);
-  const saveCharacter = useStore((s) => s.saveCharacter);
-  const removeCharacter = useStore((s) => s.removeCharacter);
+  const saveSpace = useStore((s) => s.saveSpace);
+  const removeSpace = useStore((s) => s.removeSpace);
+  const selectCharacter = useStore((s) => s.selectCharacter);
+  const createCharacter = useStore((s) => s.createCharacter);
   const newSession = useStore((s) => s.newSession);
   const toast = useStore((s) => s.toast);
 
-  const [draft, setDraft] = useState<Character | null>(character);
+  const [draft, setDraft] = useState<Space | null>(space);
   const [tab, setTab] = useState<TabId>("basic");
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -62,18 +66,18 @@ export function CharacterDrawer() {
   const seedInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && character) {
-      setDraft({ ...character });
+    if (open && space) {
+      setDraft({ ...space });
       setConfirmDelete(false);
     }
-  }, [open, character?.id, character?.updatedAt]);
+  }, [open, space?.id, space?.updatedAt]);
 
   const dirty = useMemo(() => {
     // 抽屉关着时不用比：草稿里带着整份工作流与上下文块，
     // 每次消息 / 设置变化都 stringify 两遍是白算。
-    if (!open || !draft || !character) return false;
-    return JSON.stringify(draft) !== JSON.stringify(character);
-  }, [open, draft, character]);
+    if (!open || !draft || !space) return false;
+    return JSON.stringify(draft) !== JSON.stringify(space);
+  }, [open, draft, space]);
 
   // 只在「工作流」页真的开着时才校验：validateWorkflow 要遍历全部节点与连线，
   // 挂在组件顶层等于每次重渲染都算一遍，而结果只有那一页用得到。
@@ -82,20 +86,26 @@ export function CharacterDrawer() {
     [open, tab, draft],
   );
 
+  const spaceCharacters = useMemo(
+    () => (space ? characters.filter((c) => c.spaceId === space.id) : []),
+    [characters, space],
+  );
+  const character = characters.find((c) => c.id === activeCharacterId) ?? spaceCharacters[0] ?? null;
+
   if (!draft) return null;
 
-  const patch = (value: Partial<Character>) => setDraft({ ...draft, ...value });
+  const patch = (value: Partial<Space>) => setDraft({ ...draft, ...value });
 
-  // 老角色卡可能还存着三张（正 / 侧 / 背）：只认第一张，多余的槽位在保存时自然被裁掉
-  const seed = (draft.imageSeeds ?? []).find((src) => Boolean(src)) ?? "";
+  const seeds = trimSeeds(draft.imageSeeds);
 
   const handleSeedUpload = async (files: FileList | null) => {
-    const picked = Array.from(files ?? []).slice(0, 1);
+    const picked = Array.from(files ?? []);
     if (!picked.length) return;
     setUploadingSeed(true);
     try {
-      const data = await prepareReferenceImage(picked[0]);
-      setDraft({ ...draft, imageSeeds: [data] });
+      const added: string[] = [];
+      for (const file of picked) added.push(await prepareReferenceImage(file));
+      patch({ imageSeeds: Array.from(new Set([...seeds, ...added])) });
     } catch (err) {
       toast({
         title: "底图读取失败",
@@ -107,10 +117,11 @@ export function CharacterDrawer() {
     }
   };
 
-  const clearSeed = () => setDraft({ ...draft, imageSeeds: [] });
+  const removeSeed = (src: string) =>
+    patch({ imageSeeds: seeds.filter((item) => item !== src) });
 
   const requestClose = () => {
-    if (dirty && !window.confirm("角色卡有未保存的修改，确定关闭？")) return;
+    if (dirty && !window.confirm("空间设置有未保存的修改，确定关闭？")) return;
     openDrawer(null);
   };
 
@@ -118,15 +129,12 @@ export function CharacterDrawer() {
     if (!draft) return;
     setSaving(true);
     try {
-      await saveCharacter({
+      await saveSpace({
         id: draft.id,
         name: draft.name,
         avatar: draft.avatar,
-        tagline: draft.tagline,
-        description: draft.description,
-        greeting: draft.greeting,
-        imageSeeds: trimSeeds(draft.imageSeeds),
         systemPrompt: draft.systemPrompt,
+        imageSeeds: seeds,
         contextBlocks: draft.contextBlocks,
         quickPhrases: draft.quickPhrases,
         workflow: draft.workflow,
@@ -143,17 +151,17 @@ export function CharacterDrawer() {
         open={open}
         onClose={requestClose}
         side="right"
-        ariaLabel="角色卡编辑"
-        className="w-[min(600px,100vw)]"
+        ariaLabel="空间设置"
+        className="w-[min(620px,100vw)]"
       >
         <DrawerHeader
           title={
             <span className="flex items-center gap-2">
               <span className="text-[17px]">{draft.avatar}</span>
-              {draft.name || "未命名角色"}
+              {draft.name || "未命名空间"}
             </span>
           }
-          subtitle="角色卡 · 提示词工程 · 工作流"
+          subtitle={`空间设置 · ${spaceCharacters.length} 个角色`}
           onClose={requestClose}
         >
           <Button
@@ -173,6 +181,7 @@ export function CharacterDrawer() {
             onChange={setTab}
             tabs={[
               { id: "basic", label: "基础" },
+              { id: "characters", label: "角色" },
               { id: "context", label: "上下文" },
               { id: "workflow", label: "工作流" },
               { id: "script", label: "脚本" },
@@ -189,7 +198,7 @@ export function CharacterDrawer() {
                   {draft.avatar}
                 </div>
                 <div className="min-w-0 flex-1 space-y-2">
-                  <Field label="头像 Emoji">
+                  <Field label="空间图标">
                     <Input
                       value={draft.avatar}
                       onChange={(e) => patch({ avatar: e.target.value.slice(0, 4) })}
@@ -214,124 +223,68 @@ export function CharacterDrawer() {
                 </div>
               </div>
 
-              <Field label="角色名">
+              <Field label="空间名">
                 <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
               </Field>
 
-              <Field label="一句话简介">
-                <Input
-                  value={draft.tagline}
-                  onChange={(e) => patch({ tagline: e.target.value })}
-                  placeholder="例如：雨夜借伞的江湖客"
-                />
-              </Field>
-
-              <Field label="角色描述" hint="展示在会话空态，也作为角色背景">
-                <Textarea
-                  value={draft.description}
-                  onChange={(e) => patch({ description: e.target.value })}
-                  className="min-h-[76px]"
-                />
-              </Field>
-
               <Field
-                label="角色底图"
-                hint="一张正面全身照最稳：双手双脚完整入画，脑袋正对前方、不要歪斜。建议事先洗一下底图，现代人物洗成全裸/西装与白色衬衫（接近模型没有约束下的默认设定），古风人物洗成白色轻纱汉服，这样换装换动作不容易跑形"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="w-[116px] shrink-0 space-y-1.5">
-                    <button
-                      type="button"
-                      onClick={() => seedInputRef.current?.click()}
-                      disabled={uploadingSeed}
-                      title={seed ? "更换底图" : "上传底图"}
-                      className={cn(
-                        "group/slot relative flex aspect-[2/3] w-full items-center justify-center overflow-hidden rounded-xl border bg-surface-2 text-fg-subtle transition-colors",
-                        seed
-                          ? "border-line hover:border-primary/40"
-                          : "border-dashed border-line/80 hover:border-primary/50 hover:text-fg-muted",
-                      )}
-                    >
-                      {seed ? (
-                        <img src={seed} alt="角色底图" className="h-full w-full object-cover" />
-                      ) : (
-                        <span className="flex flex-col items-center gap-1">
-                          <ImageIcon size={18} />
-                          <span className="text-[10.5px]">{uploadingSeed ? "处理中…" : "上传"}</span>
-                        </span>
-                      )}
-                      {seed && (
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/45 opacity-0 transition-opacity group-hover/slot:opacity-100">
-                          <Upload size={16} className="text-white" />
-                        </span>
-                      )}
-                    </button>
-                    <div className="flex items-center justify-between px-0.5">
-                      <span className="text-[11px] text-fg-subtle">{SEED_LABEL}</span>
-                      {seed && (
-                        <button
-                          type="button"
-                          onClick={clearSeed}
-                          className="text-[11px] text-fg-subtle transition-colors hover:text-danger"
-                        >
-                          移除
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <p className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-fg-subtle">
-                    图生图每轮都拿这张重新画，画面变化只来自提示词。底图上就带着你想长期保留的那身衣服时，后续换装、换动作最稳。
-                  </p>
-                </div>
-                <input
-                  ref={seedInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleSeedUpload(event.target.files);
-                    event.target.value = "";
-                  }}
-                />
-              </Field>
-
-              <div className="space-y-2">
-                <Field
-                  label="初始消息"
-                  hint="新建会话时自动写入的第一条角色消息，支持 {{char}} / {{user}}；留空就显示角色介绍页"
-                >
-                  <Textarea
-                    value={draft.greeting}
-                    onChange={(e) => patch({ greeting: e.target.value })}
-                    className="min-h-[116px] text-[12.5px] leading-relaxed"
-                    placeholder={"（她抬眼，把伞往你那边偏了偏。）\n\n「这么大的雨，站这儿等人？」"}
-                  />
-                </Field>
-                {draft.greeting.trim() && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-[11.5px]"
-                    onClick={async () => {
-                      await save();
-                      await newSession(draft.id);
-                    }}
-                    leading={<Plus size={12} />}
-                  >
-                    保存并新建开场会话
-                  </Button>
-                )}
-              </div>
-
-              <Field
-                label="系统提示词"
-                hint="支持 {{char}} / {{user}}。写完就是上下文编排里「角色系统提示」块的内容"
+                label="共享系统提示词"
+                hint="空间里所有角色共用这一段：世界、规则、说话的分寸都写这里。角色自己的身份与脾性写在角色编辑里；支持 {{char}} / {{user}}"
               >
                 <Textarea
                   value={draft.systemPrompt}
                   onChange={(e) => patch({ systemPrompt: e.target.value })}
                   className="min-h-[220px] text-[12.5px] leading-relaxed"
-                  placeholder="你是……"
+                  placeholder="这是一个发生在……的世界。"
+                />
+              </Field>
+
+              <Field
+                label="底图库"
+                hint="这里上传的图供空间内所有角色挑选。一张正面全身照最稳：双手双脚完整入画，脑袋正对前方、不要歪斜。建议事先洗一下底图，现代人物洗成西装与白衬衫、古风人物洗成白色轻纱汉服，换装换动作不容易跑形"
+              >
+                <div className="flex flex-wrap gap-2">
+                  {seeds.map((src) => (
+                    <div key={src} className="group/seed relative">
+                      <div className="aspect-[2/3] w-[64px] overflow-hidden rounded-lg border border-line">
+                        <img src={src} alt="底图" className="h-full w-full object-cover" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeSeed(src)}
+                        aria-label="删除这张底图"
+                        className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/55 text-white opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 group-hover/seed:opacity-100"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => seedInputRef.current?.click()}
+                    disabled={uploadingSeed}
+                    title="上传底图，可多选"
+                    className="flex aspect-[2/3] w-[64px] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-line/80 bg-surface-2 text-fg-subtle transition-colors hover:border-primary/50 hover:text-fg-muted disabled:opacity-60"
+                  >
+                    <Upload size={15} />
+                    <span className="text-[10px]">{uploadingSeed ? "…" : "上传"}</span>
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-fg-subtle">
+                  {seeds.length
+                    ? "每个角色在角色编辑里挑其中一张，图生图每轮都拿它重新画。"
+                    : "还没有底图。想用图生图，先在这里传一张，再去角色里选。"}
+                </p>
+                <input
+                  ref={seedInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    void handleSeedUpload(event.target.files);
+                    event.target.value = "";
+                  }}
                 />
               </Field>
 
@@ -343,12 +296,12 @@ export function CharacterDrawer() {
                       size="sm"
                       leading={<Trash2 size={13} />}
                       onClick={async () => {
-                        await removeCharacter(draft.id);
+                        await removeSpace(draft.id);
                         setConfirmDelete(false);
                         openDrawer(null);
                       }}
                     >
-                      确认删除角色（含会话）
+                      确认删除空间（含全部角色与会话）
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
                       取消
@@ -362,16 +315,99 @@ export function CharacterDrawer() {
                     leading={<Trash2 size={13} />}
                     onClick={() => setConfirmDelete(true)}
                   >
-                    删除角色
+                    删除空间
                   </Button>
                 )}
               </div>
             </div>
           )}
 
-          {tab === "context" && (
+          {tab === "characters" && (
+            <div className="space-y-3">
+              <p className="text-[11.5px] leading-relaxed text-fg-subtle">
+                同一个空间可以有多个角色：它们共用这里的提示词、编排与底图库，各自带着自己的开场白和专属提示词。
+              </p>
+
+              {spaceCharacters.map((item) => {
+                const active = item.id === activeCharacterId;
+                return (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-2xl px-inset-sm py-2.5 transition-colors",
+                      active ? "bg-primary-container" : "bg-surface-2 hover:bg-surface-3",
+                    )}
+                  >
+                    <CharacterAvatar
+                      seed={characterSeed(item, draft)}
+                      emoji={item.avatar}
+                      alt={item.name}
+                      className="w-[28px] bg-surface"
+                      rounded="rounded-[8px]"
+                      emojiSize={16}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={cn(
+                          "truncate text-[13px] font-medium",
+                          active ? "text-on-primary-container" : "text-fg",
+                        )}
+                      >
+                        {item.name}
+                      </p>
+                      <p className="truncate text-[11px] text-fg-subtle">
+                        {item.systemPrompt.trim().split("\n")[0] || "未填写角色设定"}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11.5px]"
+                      onClick={async () => {
+                        if (dirty) await save();
+                        if (!active) await selectCharacter(item.id);
+                        openDrawer("character");
+                      }}
+                    >
+                      编辑
+                    </Button>
+                  </div>
+                );
+              })}
+
+              <Button
+                variant="outline"
+                size="sm"
+                leading={<Plus size={13} />}
+                onClick={async () => {
+                  if (dirty) await save();
+                  await createCharacter();
+                }}
+              >
+                新建角色
+              </Button>
+
+              {activeCharacterId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11.5px]"
+                  leading={<UserRound size={12} />}
+                  onClick={async () => {
+                    if (dirty) await save();
+                    await newSession(activeCharacterId);
+                  }}
+                >
+                  用当前角色新建会话
+                </Button>
+              )}
+            </div>
+          )}
+
+          {tab === "context" && character && (
             <ContextEditor
-              character={draft}
+              space={draft}
+              character={character}
               blocks={draft.contextBlocks}
               onChange={(contextBlocks: ContextBlock[]) => patch({ contextBlocks })}
               history={messages}
@@ -386,7 +422,7 @@ export function CharacterDrawer() {
                 <div>
                   <p className="text-[12.5px] font-medium text-fg">启用工作流</p>
                   <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-                    开启后，回复会按画布的顺序来写。不想用就关掉，回到普通对话。
+                    开启后，空间里每个角色的回复都按画布的顺序来写。不想用就关掉，回到普通对话。
                   </p>
                 </div>
                 <Switch
@@ -455,17 +491,18 @@ export function CharacterDrawer() {
             </div>
           )}
 
-          {tab === "script" && (
+          {tab === "script" && character && (
             <div className="space-y-4">
               <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
                 这是每次生成前运行的<span className="text-fg">前置脚本</span>：可以读取装配后的
                 messages，改写后返回 <code className="rounded bg-surface-3 px-1 font-mono text-[11px]">{`{ messages }`}</code>
-                ，即可影响最终请求。工作流中的「脚本」节点则在编排内单独执行。
+                ，即可影响最终请求。它对空间里所有角色生效；工作流中的「脚本」节点则在编排内单独执行。
               </div>
               <ScriptEditor
                 code={draft.script}
                 onChange={(script) => patch({ script })}
-                character={draft}
+                space={draft}
+                character={character}
                 messages={messages}
                 userName={userName}
                 imageEnabled={imageEnabled}
@@ -489,28 +526,31 @@ export function CharacterDrawer() {
               {dirty ? "有未保存的修改" : `上次保存 ${new Date(draft.updatedAt).toLocaleString("zh-CN")}`}
             </p>
             <div className="flex items-center gap-1.5">
-              {character && dirty && (
-                <Button variant="ghost" size="sm" onClick={() => setDraft({ ...character })}>
+              {space && dirty && (
+                <Button variant="ghost" size="sm" onClick={() => setDraft({ ...space })}>
                   还原
                 </Button>
               )}
               <Button variant="primary" size="sm" onClick={save} disabled={!dirty || saving}>
-                保存角色卡
+                保存空间
               </Button>
             </div>
           </div>
         </div>
       </Drawer>
 
-      <WorkflowEditor
-        open={workflowOpen}
-        workflow={draft.workflow}
-        character={draft}
-        messages={messages}
-        userName={userName}
-        onClose={() => setWorkflowOpen(false)}
-        onChange={(workflow) => patch({ workflow })}
-      />
+      {character && (
+        <WorkflowEditor
+          open={workflowOpen}
+          workflow={draft.workflow}
+          space={draft}
+          character={character}
+          messages={messages}
+          userName={userName}
+          onClose={() => setWorkflowOpen(false)}
+          onChange={(workflow) => patch({ workflow })}
+        />
+      )}
     </>
   );
 }
@@ -528,7 +568,7 @@ function QuickPhrasesEditor({
   return (
     <div className="space-y-3">
       <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-        点一下就能填入。「标签」是按钮上的字，「内容」是实际发出去的文本。
+        点一下就能填入。空间里的角色共用这一组快捷语；「标签」是按钮上的字，「内容」是实际发出去的文本。
       </p>
       {phrases.map((phrase) => (
         <div key={phrase.id} className="space-y-2 rounded-2xl border border-line p-inset-sm">
@@ -563,6 +603,10 @@ function QuickPhrasesEditor({
       >
         添加快捷语
       </Button>
+      <p className="flex items-center gap-1.5 text-[11px] text-fg-subtle">
+        <ImageIcon size={11} />
+        底图库在「基础」页，角色自己挑用哪一张。
+      </p>
     </div>
   );
 }

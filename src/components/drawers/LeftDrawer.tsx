@@ -12,7 +12,7 @@ export function LeftDrawer() {
   const close = () => openDrawer(null);
 
   return (
-    <Drawer open={open} onClose={close} side="left" ariaLabel="角色与会话" className="w-[min(348px,100vw)]">
+    <Drawer open={open} onClose={close} side="left" ariaLabel="空间、角色与会话" className="w-[min(348px,100vw)]">
       <LeftPanel onClose={close} />
     </Drawer>
   );

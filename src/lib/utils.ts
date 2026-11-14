@@ -15,6 +15,15 @@ export function uid(prefix = ""): string {
 
 export const nowIso = () => new Date().toISOString();
 
+/**
+ * 新建会话的默认标题：年月日时分，例 `2026-11-14 20:09`。
+ * 用它代替「新会话」——同时开几个空会话时，列表里能分清哪个是哪个。
+ */
+export function timestampTitle(date = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }

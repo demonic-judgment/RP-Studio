@@ -36,7 +36,7 @@ export function SettingsDrawer() {
   const toast = useStore((s) => s.toast);
 
   const [tab, setTab] = useState<TabId>("theme");
-  const [stats, setStats] = useState({ characters: 0, sessions: 0, messages: 0 });
+  const [stats, setStats] = useState({ spaces: 0, characters: 0, sessions: 0, messages: 0 });
   const [usage, setUsage] = useState<{ usage: number; quota: number } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -200,7 +200,8 @@ export function SettingsDrawer() {
 
         {tab === "data" && (
           <div className="space-y-5">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Stat label="空间" value={stats.spaces} />
               <Stat label="角色" value={stats.characters} />
               <Stat label="会话" value={stats.sessions} />
               <Stat label="消息" value={stats.messages} />
@@ -221,7 +222,7 @@ export function SettingsDrawer() {
             <div className="space-y-2 rounded-2xl border border-line p-inset-sm">
               <p className="text-[12.5px] font-medium text-fg">备份与恢复</p>
               <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-                导出包含全部角色卡、会话、消息与设置，可迁移到另一台设备。
+                导出包含全部空间、角色、会话、消息与设置，可迁移到另一台设备。
               </p>
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button
@@ -267,7 +268,7 @@ export function SettingsDrawer() {
             <div className="space-y-2 rounded-2xl bg-danger/[0.08] p-inset-sm">
               <p className="text-[12.5px] font-medium text-danger">危险区域</p>
               <p className="text-[11.5px] leading-relaxed text-fg-muted">
-                清空所有数据并恢复到初始示例角色，操作不可撤销。
+                清空所有数据并恢复到初始示例空间，操作不可撤销。
               </p>
               {confirmClear ? (
                 <div className="flex items-center gap-2 pt-1">

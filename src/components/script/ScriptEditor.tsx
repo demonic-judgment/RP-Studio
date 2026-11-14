@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { CirclePlay, Eraser, Terminal, Trash2 } from "lucide-react";
-import type { Character, Message } from "../../lib/types";
+import type { Character, Message, Space } from "../../lib/types";
 import { runScript } from "../../lib/script";
 import { assembleContext } from "../../lib/context";
 import { cn } from "../../lib/utils";
@@ -25,6 +25,7 @@ return "脚本已注入潜台词提示";`;
 export function ScriptEditor({
   code,
   onChange,
+  space,
   character,
   messages,
   userName,
@@ -34,7 +35,9 @@ export function ScriptEditor({
 }: {
   code: string;
   onChange: (code: string) => void;
-  character: Character;
+  /** 编排与共享提示属于空间，脚本跑的是空间这一层 */
+  space: Pick<Space, "systemPrompt" | "contextBlocks">;
+  character: Pick<Character, "name" | "systemPrompt">;
   messages: Message[];
   userName: string;
   imageEnabled?: boolean;
@@ -51,6 +54,7 @@ export function ScriptEditor({
     setLogs([]);
     setResult(null);
     const assembled = assembleContext({
+      space,
       character,
       history: messages,
       input: testInput,

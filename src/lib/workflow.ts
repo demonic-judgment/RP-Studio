@@ -128,7 +128,7 @@ function interpolateNode(
  */
 export async function runWorkflow(params: {
   workflow: Workflow;
-  character: Pick<Character, "name" | "systemPrompt" | "description">;
+  character: Pick<Character, "name" | "systemPrompt">;
   initialMessages: ChatMessage[];
   input: string;
   userName: string;

@@ -27,6 +27,7 @@ import type {
   WorkflowEdge,
   WorkflowNode,
   WorkflowNodeKind,
+  Space,
 } from "../../lib/types";
 import { createNode, NODE_META, runWorkflow, validateWorkflow } from "../../lib/workflow";
 import { assembleContext } from "../../lib/context";
@@ -51,6 +52,7 @@ const KIND_ICON: Record<WorkflowNodeKind, React.ReactNode> = {
 export function WorkflowEditor({
   open,
   workflow,
+  space,
   character,
   messages,
   userName,
@@ -59,7 +61,9 @@ export function WorkflowEditor({
 }: {
   open: boolean;
   workflow: Workflow;
-  character: Character;
+  /** 工作流挂在空间上：试运行时按空间的编排装配上下文 */
+  space: Pick<Space, "systemPrompt" | "contextBlocks">;
+  character: Pick<Character, "name" | "systemPrompt">;
   messages: Message[];
   userName: string;
   onClose: () => void;
@@ -204,6 +208,7 @@ export function WorkflowEditor({
     setRunLogs([]);
     setRunResult(null);
     const assembled = assembleContext({
+      space,
       character,
       history: messages,
       input: testInput,
@@ -300,7 +305,7 @@ export function WorkflowEditor({
             leading={<Save size={13} />}
             onClick={() => {
               onChange(graph);
-              toast({ title: "已应用到角色卡", description: "记得在角色卡里保存", variant: "success" });
+              toast({ title: "已应用到空间", description: "记得在空间设置里保存", variant: "success" });
             }}
           >
             应用

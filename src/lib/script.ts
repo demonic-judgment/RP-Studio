@@ -5,7 +5,7 @@ export interface ScriptContext {
   messages: ChatMessage[];
   input: string;
   vars: Record<string, string>;
-  character: Pick<Character, "name" | "systemPrompt" | "description">;
+  character: Pick<Character, "name" | "systemPrompt">;
   history: string;
 }
 
@@ -116,7 +116,6 @@ export function runScript(
         character: {
           name: ctx.character.name,
           systemPrompt: ctx.character.systemPrompt,
-          description: ctx.character.description,
         },
         history: ctx.history,
       },

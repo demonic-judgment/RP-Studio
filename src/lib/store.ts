@@ -14,6 +14,8 @@ import type {
   ModelConfig,
   ModelProfile,
   Session,
+  Space,
+  SpaceDraft,
 } from "./types";
 import * as repo from "./repo";
 import { assembleContext, ensureImageDirectiveBlock, interpolate, upgradeImageDirective } from "./context";
@@ -31,8 +33,8 @@ import { assembleImagePrompt, extractImagePrompt } from "./image-prompt";
 import { requestImage, storeImageLocally } from "./image-gen";
 import { initDb } from "./db";
 import { applyTheme } from "./theme";
-import { nowIso, uid } from "./utils";
-import { SEED_CHARACTERS } from "../data/seed";
+import { nowIso, timestampTitle, uid } from "./utils";
+import { SEED_SPACES } from "../data/seed";
 
 export interface Toast {
   id: string;
@@ -53,6 +55,9 @@ export interface StreamState {
 interface Store {
   ready: boolean;
   initError: string | null;
+  /** 空间：共享舞台，编排 / 工作流 / 脚本 / 底图库都挂在这里 */
+  spaces: Space[];
+  /** 全部子角色（扁平存放），按 spaceId 过滤 */
   characters: Character[];
   sessions: Session[];
   messages: Message[];
@@ -63,6 +68,7 @@ interface Store {
   /** 生图运行态，和聊天的 stream 分开 —— 画图时聊天照常能发 */
   imageRun: ImageRunState;
   settings: AppSettings;
+  activeSpaceId: string | null;
   activeCharacterId: string | null;
   activeSessionId: string | null;
   drawer: DrawerId;
@@ -98,6 +104,7 @@ interface Store {
   openDrawer: (id: DrawerId) => void;
   setWorkflowOpen: (open: boolean) => void;
 
+  selectSpace: (id: string) => Promise<void>;
   selectCharacter: (id: string) => Promise<void>;
   selectSession: (id: string) => Promise<void>;
   newSession: (characterId?: string) => Promise<void>;
@@ -105,8 +112,12 @@ interface Store {
   pinSession: (id: string, pinned: boolean) => Promise<void>;
   removeSession: (id: string) => Promise<void>;
 
+  createSpace: () => Promise<void>;
+  saveSpace: (draft: SpaceDraft & { id: string }) => Promise<void>;
+  removeSpace: (id: string) => Promise<void>;
+
   createCharacter: () => Promise<void>;
-  saveCharacter: (draft: Partial<CharacterDraft> & { id: string }) => Promise<void>;
+  saveCharacter: (draft: CharacterDraft & { id: string }) => Promise<void>;
   removeCharacter: (id: string) => Promise<void>;
 
   send: (text: string) => Promise<void>;
@@ -120,28 +131,33 @@ interface Store {
   stop: () => void;
 
   exportData: () => Promise<repo.BackupFile>;
-  importData: (data: repo.BackupFile) => Promise<void>;
+  importData: (data: repo.BackupFile | repo.LegacyBackupFile) => Promise<void>;
   clearAll: () => Promise<void>;
 
   toast: (t: Omit<Toast, "id">) => void;
   dismissToast: (id: string) => void;
-  refreshStats: () => Promise<{ characters: number; sessions: number; messages: number }>;
+  refreshStats: () => Promise<{
+    spaces: number;
+    characters: number;
+    sessions: number;
+    messages: number;
+  }>;
 }
 
 let abortController: AbortController | null = null;
 let initStarted = false;
 
 /**
- * 给还没有「生图 JSON 预设」的角色补一条（老数据 / 导入的备份）。
+ * 给还没有「生图 JSON 预设」的空间补一条（老数据 / 导入的备份）。
  * 只在图生图开启时调用：关着的时候补进去也看不到，没必要写库。
  */
-async function withImageDirective(characters: Character[]): Promise<Character[] | null> {
-  const next: Character[] = [];
+async function withImageDirective(spaces: Space[]): Promise<Space[] | null> {
+  const next: Space[] = [];
   let changed = false;
-  for (const character of characters) {
-    const blocks = character.contextBlocks ?? [];
+  for (const space of spaces) {
+    const blocks = space.contextBlocks ?? [];
     const hasBlock = blocks.some((block) => block.kind === "image");
-    // 已有预设的角色：只把老文案里的 1:1 换成 2:3，用户自己改过的内容不动
+    // 已有预设的空间：只把老文案里的 1:1 换成 2:3，用户自己改过的内容不动
     const contextBlocks = hasBlock
       ? blocks.map((block) => {
           if (block.kind !== "image") return block;
@@ -150,10 +166,10 @@ async function withImageDirective(characters: Character[]): Promise<Character[] 
         })
       : ensureImageDirectiveBlock(blocks);
     if (contextBlocks.every((block, index) => block === blocks[index])) {
-      next.push(character);
+      next.push(space);
       continue;
     }
-    next.push(await repo.updateCharacter(character.id, { contextBlocks }));
+    next.push(await repo.updateSpace(space.id, { contextBlocks }));
     changed = true;
   }
   return changed ? next : null;
@@ -255,14 +271,19 @@ function lastMatch<T>(list: readonly T[], test: (item: T) => boolean): T | undef
   return undefined;
 }
 
-const LAST_CHAR_KEY = "rp.lastCharacter";
+const LAST_CHARACTER_KEY = "rp.lastCharacter";
 
 /**
- * 新建会话；角色卡配置了「初始消息」时，把开场白作为角色的第一条消息写入。
+ * 新建会话；角色配了「初始消息」时，把开场白作为它的第一条消息写入。
  * 这样开场白会进入历史，可被历史切片块取到，也能像普通消息一样复制 / 编辑 / 删除。
  */
 async function createSessionFor(character: Character, userName: string) {
-  const session = await repo.createSession(character.id, "新会话");
+  const session = await repo.createSession({
+    spaceId: character.spaceId,
+    characterId: character.id,
+    // 用创建时间当默认名字：空会话在列表里也能一眼分开，且之后不会被首条消息改名
+    title: timestampTitle(),
+  });
   const greeting = character.greeting?.trim();
   if (greeting) {
     await repo.appendMessage({
@@ -288,6 +309,7 @@ function branchTitle(title?: string) {
 export const useStore = create<Store>((set, get) => ({
   ready: false,
   initError: null,
+  spaces: [],
   characters: [],
   sessions: [],
   messages: [],
@@ -295,6 +317,7 @@ export const useStore = create<Store>((set, get) => ({
   imageView: null,
   imageRun: emptyImageRun,
   settings: DEFAULT_SETTINGS,
+  activeSpaceId: null,
   activeCharacterId: null,
   activeSessionId: null,
   drawer: null,
@@ -311,35 +334,40 @@ export const useStore = create<Store>((set, get) => ({
       // 尽量申请持久化存储，降低浏览器清理 IndexedDB 的概率
       void navigator.storage?.persist?.();
       // 两组查询互不依赖，一起发：启动时 PGlite 每次往返都要等一轮
-      const [saved, initialCharacters] = await Promise.all([
+      const [saved, initialSpaces] = await Promise.all([
         repo.loadSettings() as Promise<{ app?: Partial<AppSettings> }>,
-        repo.listCharacters(),
+        repo.listSpaces(),
       ]);
       const settings: AppSettings = normalizeSettings(saved.app ?? {});
 
-      let characters = initialCharacters;
-      if (characters.length === 0) {
-        for (const seed of SEED_CHARACTERS) {
-          await repo.createCharacter(seed);
+      let spaces = initialSpaces;
+      if (spaces.length === 0) {
+        for (const seed of SEED_SPACES) {
+          const created = await repo.createSpace(seed.space, seed.characters[0]);
+          for (const extra of seed.characters.slice(1)) {
+            await repo.createCharacter(created.space.id, extra);
+          }
         }
-        characters = await repo.listCharacters();
+        spaces = await repo.listSpaces();
       }
-      // 上次就开着图生图：把缺预设的老角色一并补齐
-      if (settings.imageEnabled) {
-        characters = (await withImageDirective(characters)) ?? characters;
-      }
+      const characters = await repo.listCharacters();
+      // 上次就开着图生图：把缺预设的老空间一并补齐
+      const upgraded = settings.imageEnabled ? await withImageDirective(spaces) : null;
+      if (upgraded) spaces = upgraded;
       // 老消息正文里的生图 JSON 清一次（失败不影响启动，下次还会再试）
       await stripLegacyImageJson().catch(() => undefined);
 
-      const lastId = localStorage.getItem(LAST_CHAR_KEY);
-      const active = characters.find((c) => c.id === lastId) ?? characters[0] ?? null;
+      const lastId = localStorage.getItem(LAST_CHARACTER_KEY);
+      const active =
+        characters.find((c) => c.id === lastId) ??
+        characters.find((c) => c.spaceId === spaces[0]?.id) ??
+        characters[0] ??
+        null;
 
-      set({ settings, characters, ready: true });
+      set({ settings, spaces, characters, ready: true });
       applyTheme(settings.theme, settings.accent);
 
-      if (active) {
-        await get().selectCharacter(active.id);
-      }
+      if (active) await get().selectCharacter(active.id);
     } catch (err) {
       set({
         ready: true,
@@ -394,10 +422,10 @@ export const useStore = create<Store>((set, get) => ({
   setImageEnabled: async (enabled) => {
     await get().setSettings({ imageEnabled: enabled });
     if (enabled) {
-      // 老角色卡里没有这条预设：打开开关时补进角色数据，
-      // 角色卡的「提示词编排」里就能直接看到并修改，而不是只靠装配时兜底。
-      const characters = await withImageDirective(get().characters);
-      if (characters) set({ characters });
+      // 老空间里没有这条预设：打开开关时补进去，
+      // 空间设置的「上下文」里就能直接看到并修改，而不是只靠装配时兜底。
+      const spaces = await withImageDirective(get().spaces);
+      if (spaces) set({ spaces });
     } else {
       // 关掉开关时把上一次的失败提示一起清掉，别留着红字挂在空组件上
       clearImageQueue();
@@ -465,18 +493,19 @@ export const useStore = create<Store>((set, get) => ({
   generateImage: async (opts) => {
     const state = get();
     const startedAt = performance.now();
-    const { activeSessionId, activeCharacterId, settings } = state;
+    const { activeSessionId, activeSpaceId, activeCharacterId, settings } = state;
     if (!activeSessionId || !activeCharacterId) {
       drainImageQueue();
       return;
     }
-    // 排队而不是丢弃：等这一张画完接着画下一张，底图链才不会错位
+    // 排队而不是丢弃：等这一张画完接着画下一张，底图才不会错位
     if (state.imageRun.running) {
       if (imageQueue.length < IMAGE_QUEUE_LIMIT) imageQueue.push(opts ?? {});
       return;
     }
     const character = state.characters.find((c) => c.id === activeCharacterId);
-    if (!character) {
+    const space = state.spaces.find((s) => s.id === (character?.spaceId ?? activeSpaceId));
+    if (!character || !space) {
       drainImageQueue();
       return;
     }
@@ -512,7 +541,7 @@ export const useStore = create<Store>((set, get) => ({
     if (!rawPrompt) {
       get().toast({
         title: "没有可用的生图提示词",
-        description: "等回复里带上「生图提示词」，或换用配好该模板的角色卡",
+        description: "等回复里带上「生图提示词」，或检查空间的上下文编排",
         variant: "error",
       });
       drainImageQueue();
@@ -520,26 +549,25 @@ export const useStore = create<Store>((set, get) => ({
     }
 
     /**
-     * 底图不随对话滚动：所有图都以角色卡的**那一张底图**为参考重新画，画面变化只来自提示词。
-     * 之前是「上一张 → 下一张」的链式演化，问题在于每轮都会继承上一张的构图与画风偏差，
-     * 于是同一角色越画越偏、还回不去；固定底图后每个气泡都是同一张脸 + 不同的那一幕，
-     * 重新生图的多个版本也因此天然处在同一起点。
+     * 底图不随对话滚动：所有图都以**当前角色选中的那张底图**为参考重新画，
+     * 画面变化只来自提示词。之前是「上一张 → 下一张」的链式演化，问题在于每轮都会
+     * 继承上一张的构图与画风偏差，于是同一角色越画越偏、还回不去；固定底图后每个气泡
+     * 都是同一张脸 + 不同的那一幕，重新生图的多个版本也因此天然处在同一起点。
      *
-     * 只取第一张：正面全身照单图的效果明显好过多角度三视图 ——
-     * 给模型多张参考时它反而会在几个朝向之间折中，脸与身材更容易跑偏。
-     * 老角色卡里存着的三张也只认第一张。
-     * `opts.baseImageId` 只作为显式覆盖保留（目前没有 UI 入口）。
+     * 只取一张：给模型多张参考时它反而会在几个朝向之间折中，脸与身材更容易跑偏。
+     * 底图库在空间里，角色只用自己选的那张（`character.activeSeed`），
+     * 为空才退回空间底图库的第一张。`opts.baseImageId` 只作为显式覆盖保留（目前没有 UI 入口）。
      */
     const baseRecord = opts?.baseImageId ? images.find((img) => img.id === opts.baseImageId) : undefined;
-    const baseImages = baseRecord
-      ? [baseRecord.url]
-      : character.imageSeeds.filter((src) => Boolean(src)).slice(0, 1);
+    const pickedSeed =
+      character.activeSeed || space.imageSeeds.find((src) => Boolean(src)) || "";
+    const baseImages = baseRecord ? [baseRecord.url] : pickedSeed ? [pickedSeed] : [];
 
     const profile = activeImageProfile(settings);
     if (profile.mode === "edit" && baseImages.length === 0) {
       get().toast({
         title: "图生图缺少底图",
-        description: "在角色卡基础页上传一张正面全身照的底图，或把生图档案切成文生图",
+        description: "在空间设置里上传底图，再到角色里选一张，或把生图档案切成文生图",
         variant: "error",
       });
       drainImageQueue();
@@ -606,13 +634,23 @@ export const useStore = create<Store>((set, get) => ({
   openDrawer: (id) => set({ drawer: id }),
   setWorkflowOpen: (open) => set({ workflowOpen: open }),
 
+  selectSpace: async (id) => {
+    const space = get().spaces.find((s) => s.id === id);
+    if (!space) return;
+    const kids = get().characters.filter((c) => c.spaceId === id);
+    if (!kids.length) return;
+    // 已经停在这个空间：别动当前会话，交给 selectCharacter 判断
+    const keep = kids.find((c) => c.id === get().activeCharacterId);
+    await get().selectCharacter(keep?.id ?? kids[0].id);
+  },
+
   selectCharacter: async (id) => {
     const character = get().characters.find((c) => c.id === id) ?? null;
     if (!character) return;
-    localStorage.setItem(LAST_CHAR_KEY, id);
+    localStorage.setItem(LAST_CHARACTER_KEY, id);
 
     // 已经停在这个角色上：只刷新会话列表，别动当前会话。
-    // 左栏的「编辑角色卡」和重复点同一条角色都会走到这里，用户只想改卡 / 看看，
+    // 左栏的「编辑空间」和重复点同一个角色都会走到这里，用户只想改配置 / 看看，
     // 把 activeSessionId 清空再自动选 sessions[0] 等于替他换了对话。
     const currentSessionId = get().activeSessionId;
     if (get().activeCharacterId === id && currentSessionId) {
@@ -624,6 +662,7 @@ export const useStore = create<Store>((set, get) => ({
 
     clearImageQueue();
     set({
+      activeSpaceId: character.spaceId,
       activeCharacterId: id,
       activeSessionId: null,
       messages: [],
@@ -666,6 +705,8 @@ export const useStore = create<Store>((set, get) => ({
     clearImageQueue();
     set({
       sessions: await repo.listSessions(charId),
+      activeSpaceId: character.spaceId,
+      activeCharacterId: charId,
       activeSessionId: session.id,
       messages: await repo.listMessages(session.id),
       images: [],
@@ -677,14 +718,14 @@ export const useStore = create<Store>((set, get) => ({
 
   renameSession: async (id, title) => {
     await repo.updateSession(id, { title: title.trim() || "未命名会话" });
-    const activeCharacterId = get().activeCharacterId;
-    if (activeCharacterId) set({ sessions: await repo.listSessions(activeCharacterId) });
+    const characterId = get().activeCharacterId;
+    if (characterId) set({ sessions: await repo.listSessions(characterId) });
   },
 
   pinSession: async (id, pinned) => {
     await repo.updateSession(id, { pinned });
-    const activeCharacterId = get().activeCharacterId;
-    if (activeCharacterId) set({ sessions: await repo.listSessions(activeCharacterId) });
+    const characterId = get().activeCharacterId;
+    if (characterId) set({ sessions: await repo.listSessions(characterId) });
   },
 
   removeSession: async (id) => {
@@ -703,45 +744,103 @@ export const useStore = create<Store>((set, get) => ({
     }
   },
 
+  createSpace: async () => {
+    const { space, character } = await repo.createSpace({ name: "未命名空间", avatar: "🎭" });
+    set({
+      spaces: await repo.listSpaces(),
+      characters: await repo.listCharacters(),
+      activeSpaceId: space.id,
+      activeCharacterId: character.id,
+      drawer: "space",
+    });
+    await get().selectCharacter(character.id);
+  },
+
+  saveSpace: async (draft) => {
+    const space = await repo.updateSpace(draft.id, draft);
+    const characters = await repo.listCharacters();
+    set({
+      spaces: (await repo.listSpaces()).map((s) => (s.id === space.id ? space : s)),
+      characters,
+    });
+    get().toast({ title: "空间已保存", variant: "success" });
+  },
+
+  removeSpace: async (id) => {
+    const wasActive = get().activeSpaceId === id;
+    await repo.deleteSpace(id);
+    let spaces = await repo.listSpaces();
+    if (spaces.length === 0) {
+      const seed = SEED_SPACES[0];
+      await repo.createSpace(seed.space, seed.characters[0]);
+      spaces = await repo.listSpaces();
+    }
+    const characters = await repo.listCharacters();
+    if (!wasActive) {
+      set({ spaces, characters });
+      return;
+    }
+    const next = characters.find((c) => c.spaceId === spaces[0]?.id) ?? characters[0];
+    set({
+      spaces,
+      characters,
+      activeSpaceId: next?.spaceId ?? null,
+      activeCharacterId: next?.id ?? null,
+      activeSessionId: null,
+      sessions: [],
+      messages: [],
+      images: [],
+      imageView: null,
+      imageRun: emptyImageRun,
+    });
+    if (next) await get().selectCharacter(next.id);
+    get().toast({ title: "空间已删除", variant: "default" });
+  },
+
   createCharacter: async () => {
-    const character = await repo.createCharacter({ name: "未命名角色", avatar: "🎭" });
-    set({ characters: await repo.listCharacters(), activeCharacterId: character.id, drawer: "character" });
+    const spaceId = get().activeSpaceId;
+    if (!spaceId) return;
+    const existing = get().characters.filter((c) => c.spaceId === spaceId);
+    const character = await repo.createCharacter(spaceId, {
+      name: `新角色 ${existing.length + 1}`,
+      avatar: "🎭",
+      // 新角色默认沿用空间底图库的第一张，省得进图生图才发现没底图
+      activeSeed: get().spaces.find((s) => s.id === spaceId)?.imageSeeds.find(Boolean) ?? "",
+    });
+    set({ characters: await repo.listCharacters(), drawer: "character" });
     await get().selectCharacter(character.id);
   },
 
   saveCharacter: async (draft) => {
     const character = await repo.updateCharacter(draft.id, draft);
-    const characters = await repo.listCharacters();
-    set({ characters });
-    if (get().activeCharacterId === character.id) {
-      set({ characters: characters.map((c) => (c.id === character.id ? character : c)) });
-    }
-    get().toast({ title: "角色卡已保存", variant: "success" });
+    set({
+      characters: (await repo.listCharacters()).map((c) => (c.id === character.id ? character : c)),
+    });
+    get().toast({ title: "角色已保存", variant: "success" });
   },
 
   removeCharacter: async (id) => {
+    const target = get().characters.find((c) => c.id === id);
+    if (!target) return;
+    const siblings = get().characters.filter((c) => c.spaceId === target.spaceId);
+    // 空间不能没有角色：没有角色就没有会话，左栏会变成一个点不动的空壳
+    if (siblings.length <= 1) {
+      get().toast({
+        title: "至少保留一个角色",
+        description: "空间里没有角色就没有会话可聊，先新建一个再删",
+        variant: "error",
+      });
+      return;
+    }
     const wasActive = get().activeCharacterId === id;
     await repo.deleteCharacter(id);
-    let characters = await repo.listCharacters();
-    if (characters.length === 0) {
-      await repo.createCharacter({ name: "未命名角色", avatar: "🎭" });
-      characters = await repo.listCharacters();
-    }
-    // 删的不是当前角色时别动当前会话
+    const characters = await repo.listCharacters();
     if (!wasActive) {
       set({ characters });
     } else {
-      set({
-        characters,
-        activeCharacterId: null,
-        activeSessionId: null,
-        messages: [],
-        sessions: [],
-        images: [],
-        imageView: null,
-        imageRun: emptyImageRun,
-      });
-      await get().selectCharacter(characters[0].id);
+      const next = characters.find((c) => c.spaceId === target.spaceId) ?? characters[0];
+      set({ characters });
+      if (next) await get().selectCharacter(next.id);
     }
     get().toast({ title: "角色已删除", variant: "default" });
   },
@@ -773,8 +872,8 @@ export const useStore = create<Store>((set, get) => ({
 
   branchConversation: async (messageId) => {
     const state = get();
-    const { activeSessionId, activeCharacterId } = state;
-    if (!activeSessionId || !activeCharacterId || state.stream.running) return;
+    const { activeSessionId, activeSpaceId, activeCharacterId } = state;
+    if (!activeSessionId || !activeSpaceId || !activeCharacterId || state.stream.running) return;
 
     const all = await repo.listMessages(activeSessionId);
     const index = all.findIndex((m) => m.id === messageId);
@@ -782,6 +881,7 @@ export const useStore = create<Store>((set, get) => ({
 
     const source = state.sessions.find((s) => s.id === activeSessionId);
     const session = await repo.branchSession({
+      spaceId: activeSpaceId,
       characterId: activeCharacterId,
       title: branchTitle(source?.title),
       // 只带走到这条消息为止的部分：后面的内容留在原会话里
@@ -812,7 +912,8 @@ export const useStore = create<Store>((set, get) => ({
       const character = state.characters.find((c) => c.id === characterId);
       const session = character
         ? await createSessionFor(character, state.settings.userName)
-        : await repo.createSession(characterId, "新会话");
+        : null;
+      if (!session) return;
       sessionId = session.id;
       clearImageQueue();
       set({
@@ -829,13 +930,6 @@ export const useStore = create<Store>((set, get) => ({
     const messages = [...get().messages, userMessage];
     set({ messages });
 
-    const session = get().sessions.find((s) => s.id === sessionId);
-    if (session && (session.title === "新会话" || !session.title)) {
-      const title = content.replace(/\s+/g, " ").slice(0, 22);
-      await repo.updateSession(sessionId, { title });
-      set({ sessions: await repo.listSessions(characterId) });
-    }
-
     await get().regenerate(userMessage.id);
   },
 
@@ -844,7 +938,8 @@ export const useStore = create<Store>((set, get) => ({
     const { activeSessionId, activeCharacterId } = state;
     if (!activeSessionId || !activeCharacterId || state.stream.running) return;
     const character = state.characters.find((c) => c.id === activeCharacterId);
-    if (!character) return;
+    const space = state.spaces.find((s) => s.id === character?.spaceId);
+    if (!character || !space) return;
 
     const messages = await repo.listMessages(activeSessionId);
     const index = messages.findIndex((m) => m.id === messageId);
@@ -908,6 +1003,7 @@ export const useStore = create<Store>((set, get) => ({
     if (!carry) void repo.pruneImages(activeSessionId);
 
     const assembled = assembleContext({
+      space,
       character,
       history,
       input,
@@ -915,16 +1011,19 @@ export const useStore = create<Store>((set, get) => ({
       imageEnabled: state.settings.imageEnabled,
     });
 
-    // 角色前置脚本：可改写装配后的消息栈
+    // 空间前置脚本：可改写装配后的消息栈
     let outbound = assembled.messages;
-    if (character.script.trim()) {
+    if (space.script.trim()) {
       const scripted = await runScript(
-        character.script,
+        space.script,
         {
           messages: assembled.messages,
           input,
           vars: { char: character.name, user: state.settings.userName, input },
-          character,
+          character: {
+            name: character.name,
+            systemPrompt: character.systemPrompt,
+          },
           history: assembled.messages
             .filter((m) => m.role !== "system")
             .map((m) => `${m.role}: ${m.content}`)
@@ -947,7 +1046,7 @@ export const useStore = create<Store>((set, get) => ({
     const modelName = paramModel(model.params);
     abortController = new AbortController();
     const startedAt = Date.now();
-    const mode: StreamState["mode"] = character.workflow?.enabled ? "workflow" : "chat";
+    const mode: StreamState["mode"] = space.workflow?.enabled ? "workflow" : "chat";
 
     set({
       stream: {
@@ -1045,8 +1144,11 @@ export const useStore = create<Store>((set, get) => ({
     try {
       if (mode === "workflow") {
         const result = await runWorkflow({
-          workflow: character.workflow,
-          character,
+          workflow: space.workflow,
+          character: {
+            name: character.name,
+            systemPrompt: character.systemPrompt,
+          },
           initialMessages: outbound,
           input,
           userName: state.settings.userName,
@@ -1191,20 +1293,23 @@ export const useStore = create<Store>((set, get) => ({
 
   importData: async (data) => {
     await repo.importAll(data);
-    let characters = await repo.listCharacters();
-    // 备份里的老角色没有生图 JSON 预设，开着图生图就补上
+    let spaces = await repo.listSpaces();
+    const characters = await repo.listCharacters();
+    // 备份里的老空间没有生图 JSON 预设，开着图生图就补上
     if (get().settings.imageEnabled) {
-      characters = (await withImageDirective(characters)) ?? characters;
+      spaces = (await withImageDirective(spaces)) ?? spaces;
     }
     // 备份里的正文可能还带着生图 JSON，导入后就地清一遍
     await stripLegacyImageJson().catch(() => undefined);
     set({
+      spaces,
       characters,
       sessions: [],
       messages: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      activeSpaceId: null,
       activeCharacterId: null,
       activeSessionId: null,
     });
@@ -1214,33 +1319,41 @@ export const useStore = create<Store>((set, get) => ({
       set({ settings });
       applyTheme(settings.theme, settings.accent);
     }
-    if (characters[0]) await get().selectCharacter(characters[0].id);
+    const first = characters.find((c) => c.spaceId === spaces[0]?.id) ?? characters[0];
+    if (first) await get().selectCharacter(first.id);
     get().toast({ title: "数据已导入", variant: "success" });
   },
 
   clearAll: async () => {
     await repo.clearAllData();
-    for (const seed of SEED_CHARACTERS) {
-      await repo.createCharacter(seed);
+    for (const seed of SEED_SPACES) {
+      const created = await repo.createSpace(seed.space, seed.characters[0]);
+      for (const extra of seed.characters.slice(1)) {
+        await repo.createCharacter(created.space.id, extra);
+      }
     }
+    const spaces = await repo.listSpaces();
     const characters = await repo.listCharacters();
     set({
+      spaces,
       characters,
       sessions: [],
       messages: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      activeSpaceId: null,
       activeCharacterId: null,
       activeSessionId: null,
     });
-    if (characters[0]) await get().selectCharacter(characters[0].id);
+    const first = characters.find((c) => c.spaceId === spaces[0]?.id) ?? characters[0];
+    if (first) await get().selectCharacter(first.id);
     get().toast({ title: "所有数据已重置", variant: "default" });
   },
 
   toast: (t) => {
     const id = uid("toast");
-    set((s) => ({ toasts: [...s.toasts, { ...t, id }] }));
+    set((s) => ({ toasts: [...s.toasts, { id, ...t }] }));
     setTimeout(() => get().dismissToast(id), 3600);
   },
 
@@ -1249,9 +1362,21 @@ export const useStore = create<Store>((set, get) => ({
   refreshStats: () => repo.dbStats(),
 }));
 
+/* ------------------------------- 便捷选择器 ------------------------------- */
+
+export function activeSpace(): Space | null {
+  const { spaces, activeSpaceId } = useStore.getState();
+  return spaces.find((s) => s.id === activeSpaceId) ?? null;
+}
+
 export function activeCharacter(): Character | null {
   const { characters, activeCharacterId } = useStore.getState();
   return characters.find((c) => c.id === activeCharacterId) ?? null;
+}
+
+export function charactersOfSpace(characters: Character[], spaceId: string | null): Character[] {
+  if (!spaceId) return [];
+  return characters.filter((c) => c.spaceId === spaceId);
 }
 
 export function currentModel(): ModelConfig {

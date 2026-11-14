@@ -1,10 +1,10 @@
 # RP-Studio
 
-> 一个完全跑在浏览器里的角色扮演工作室：提示词工程、上下文编排、节点工作流、脚本沙箱，配一套 Material 3 风格的界面。
+> 一个完全跑在浏览器里的角色扮演工作室：一个「空间」下挂多个角色，共享世界设定、各自有专属提示词；再配上上下文编排、节点工作流、脚本沙箱与边聊边变的生图，界面是 Material 3 风格。
 
-**它是什么** — React 19 + TypeScript + Vite 的单页应用。用 PGlite（编译成 WASM 的 Postgres）把角色卡、会话、消息、模型配置全部存进浏览器 IndexedDB，**没有后端、没有账号、没有服务端数据库**；模型请求由浏览器直接发往任意 OpenAI 兼容网关。整站可作为静态资源部署到 Cloudflare Workers / Pages / Vercel / Netlify。
+**它是什么** — React 19 + TypeScript + Vite 的单页应用。用 PGlite（编译成 WASM 的 Postgres）把空间、角色、会话、消息、模型配置全部存进浏览器 IndexedDB，**没有后端、没有账号、没有服务端数据库**；模型请求由浏览器直接发往任意 OpenAI 兼容网关。整站可作为静态资源部署到 Cloudflare Workers / Pages / Vercel / Netlify。
 
-**它特别在哪** — 把「一次对话请求」拆成可观察、可编排的流水线：上下文块决定送什么 → 前置脚本可改写消息栈 → 工作流决定怎么调模型 → 结果带着执行日志落库。每个中间环节都能在界面上预览或试运行，而不是埋在一次 `fetch` 里。另外，角色回复可以顺带一句绘图提示词：应用把它从气泡里摘走，按可排序的提示词块拼成 prompt，拿角色卡的固定底图重画这一幕——聊到哪儿，画面就换到哪儿。
+**它特别在哪** — 把「一次对话请求」拆成可观察、可编排的流水线：上下文块决定送什么 → 前置脚本可改写消息栈 → 工作流决定怎么调模型 → 结果带着执行日志落库。每个中间环节都能在界面上预览或试运行，而不是埋在一次 `fetch` 里。编排是空间的：所有角色共用同一份流水线，其中「角色专属提示」那一块按当前角色替换文字——换个角色，只有这一段跟着换。另外，角色回复可以顺带一句绘图提示词：应用把它从气泡里摘走，按可排序的提示词块拼成 prompt，拿这个角色从空间底图库里选中的那张重画这一幕——聊到哪儿，画面就换到哪儿。
 
 **数据边界** — API Key 明文存在本地 IndexedDB；跨域调用依赖服务商的 CORS；PGlite 的 WASM 首次加载约 3 MB（gzip 后），之后由浏览器缓存。请勿在公用电脑上使用生产密钥。
 
@@ -20,7 +20,7 @@
 | --- | --- |
 | ![上下文编排](docs/context.png) | ![全屏工作流](docs/workflow.png) |
 
-| 设置抽屉 | 角色卡初始消息 |
+| 设置抽屉 | 角色初始消息 |
 | --- | --- |
 | ![设置抽屉](docs/settings.png) | ![初始消息](docs/greeting.png) |
 
@@ -56,13 +56,13 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 一次「发送」的完整链路（`src/lib/store.ts` 的 `regenerate` 是唯一入口）：
 
 1. 定位目标消息，按 user / assistant 两种情形回溯 `input` 并 `truncateAfter` 截断后续消息；
-2. `assembleContext()` 按角色卡的上下文块产出 `ChatMessage[]`，附带 trace 与 token 估算；图生图开着时，`kind: "image"` 的 system 预设（要求回复末尾返回生图 JSON）一并进入消息栈；
-3. 角色卡若配置了前置脚本，`runScript()` 可返回新消息栈覆盖装配结果；
-4. `resolveModelConfig()` 取设置里「当前」那条模型档案（全局只有一份生效配置，角色卡不再单独绑定模型）；
+2. `assembleContext()` 按空间的有序上下文块产出 `ChatMessage[]`，附带 trace 与 token 估算——块是空间的，但 `kind: "system"` 读空间的共享提示词、`kind: "character"` 读当前角色的专属提示词；图生图开着时，`kind: "image"` 的 system 预设（要求回复末尾返回生图 JSON）一并进入消息栈；
+3. 空间若配置了前置脚本，`runScript()` 可返回新消息栈覆盖装配结果；
+4. `resolveModelConfig()` 取设置里「当前」那条模型档案（全局只有一份生效配置，空间与角色都不单独绑定模型）；
 5. 分流：`chatCompletion()` 直接请求，或 `runWorkflow()` 走 DFS 节点编排；`onDelta` 只写内存里的 `stream.buffer`；
 6. `finish()` 在结束 / 中止 / 出错时**一次性**追加消息落库，状态为 `done` / `stopped` / `error`；中止与报错也会保留已生成的部分；
 7. 流式期间消息列表渲染一条 `streaming-virtual` 虚拟消息，不写库；
-8. `finish()` 落库前用 `extractImagePrompt()` 把正文里的生图 JSON 摘掉：**入库的就是摘干净的台词**，JSON 只进 `meta.imagePrompt`；图生图开关打开且摘到提示词时，**不 await** 地触发 `generateImage()`，按当前气泡分组画图。
+8. `finish()` 落库前用 `extractImagePrompt()` 把正文里的生图 JSON 摘掉：**入库的就是摘干净的台词**，JSON 只进 `meta.imagePrompt`；图生图开关打开且摘到提示词时，**不 await** 地触发 `generateImage()`，按当前气泡分组、用当前角色选中的底图作参考画图。
 
 > `src/main.tsx` 里 `initDb()` 是「即发即忘」并行启动，React 随后立即挂载；`App.tsx` 用 `ready` / `initError` 两个分支显示启动态与失败态。`initDb()` 通过 `readyPromise` 单例去重，被 `main.tsx` 与 `store.init()` 调用两次也不会重复建表。
 
@@ -88,10 +88,10 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 技术 / 版本 | 入口文件 | 职责 | 关键决策 |
 | --- | --- | --- | --- |
 | `@electric-sql/pglite` `^0.5.15` | `src/lib/db.ts` | `new PGlite("idb://rp-studio")`、`waitReady` | **动态 `import()`**：它的 JS 有 488KB，静态引入会压住首屏；`getDb()` 单例（未初始化直接抛错）、`readyPromise` 去重；`MIGRATIONS` 逐条在 `db.transaction` 内执行并写 `schema_meta.version`；`resetDatabase()` drop 全部表后重建 |
-| 原生 SQL / jsonb | `src/lib/repo.ts` | 角色 / 会话 / 消息 / 设置 CRUD、导入导出、统计 | 行映射统一处理 `snake_case → camelCase` 与 `Date → ISO`；`jsonb` 一律 `JSON.stringify` + `::jsonb` 强转；`listSessions` 用子查询算 `message_count` 并 `pinned desc, updated_at desc` 排序；`importAll` 在单事务内先清四表再回灌 |
+| 原生 SQL / jsonb | `src/lib/repo.ts` | 空间 / 角色 / 会话 / 消息 / 设置 CRUD、导入导出、统计 | 行映射统一处理 `snake_case → camelCase` 与 `Date → ISO`；`jsonb` 一律 `JSON.stringify` + `::jsonb` 强转；`listSpaces` 按 `created_at asc` 排（保存空间不许让它跳到列表顶部），`listCharacters` 按 `sort_order, created_at`；`createSpace` 在同一事务里建空间 + 第一个角色；`listSessions` 按 `characterId` 过滤、用子查询算 `message_count` 并 `pinned desc, updated_at desc` 排序；`importAll` 在单事务内先清五表再回灌，`BackupFile` 认 v2（`spaces` + `characters`）、也认 v1 老备份（角色卡自动折成「一空间 + 一个同名角色」） |
 | `zustand` `^5.1.0` | `src/lib/store.ts` | 全局状态与全部 action | 模块级 `initStarted` 防重复初始化、`abortController` 支持停止生成；`navigator.storage.persist()` 申请持久化；流式只在内存累积，结束才落库 |
 | `src/lib/types.ts` | — | 领域类型单一事实来源 | `ChatMessage`（只有 role/content）与 `Message`（DB 行，含 status/meta）严格区分 |
-| `src/data/seed.ts` | — | 首次启动的三个示例角色 | 含示例工作流与脚本；`greeting` 里带 `{{user}}` |
+| `src/data/seed.ts` | — | 首次启动的三个示例空间（`雨夜江湖` 里带了两个角色） | 共享世界设定写 `space.systemPrompt`、各人脾性写 `character.systemPrompt`；含示例工作流与脚本；`greeting` 里带 `{{user}}` |
 | `src/data/image-preset.json` | `src/lib/image-presets.ts` | 生图默认预设：JSON 指令、默认编排、预览样例句 | 用户直接改这个 JSON；读取端只做类型归位与兜底（缺 `prompt` 块自动补回）|
 
 ### 2.3 模型与编排
@@ -120,11 +120,11 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 组件 | 文件 | 要点 |
 | --- | --- | --- |
 | 基础件 | `src/components/ui/{Button,Form,Tabs,Drawer,Toasts}.tsx` | `cn()`（`clsx` + `tailwind-merge`）；Drawer 有 `role="dialog"` / `aria-modal` / Esc / Tab 边界回绕 / 打开时自动聚焦；`IconButton` 统一写 `aria-label` + `title` |
-| 左栏 | `src/components/drawers/{LeftPanel,Sidebar,LeftDrawer}.tsx` | 内容只有一份（`LeftPanel`），两个外壳：桌面端 `Sidebar` 常驻左侧、不可收纳；窄屏 `LeftDrawer` 是遮罩式抽屉。断点 1024（`lib/hooks/use-wide-layout.ts`），App 按断点二选一挂载，不靠 CSS 藏——否则两份列表同时订阅 store，抽屉开着拖宽还会把 `drawer` 卡在 `"left"`，背景光斑一直 frozen |
-| 抽屉 | `src/components/drawers/{SettingsDrawer,CharacterDrawer}.tsx` + `ModelSettings.tsx` | 设置与角色卡两个抽屉由 `store.drawer` 互斥；模型档案列表在抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与角色卡都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。左栏的角色行悬停浮出「编辑卡 / 删除」，删除会连带该角色的全部会话与消息，先 `window.confirm` 再动手；删的不是当前角色时不动当前会话 |
-| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 消息操作（复制 / 编辑 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；用户消息的编辑保存后**重跑模型**（编辑重发），角色回复的编辑只改落库的正文、不重跑模型，且会同步改写 `meta.variants` 里当前那一版的快照，否则切到别的版本再切回来，编辑会被旧快照盖掉；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
+| 左栏 | `src/components/drawers/{LeftPanel,Sidebar,LeftDrawer}.tsx` | 内容只有一份（`LeftPanel`），二级树 + 会话：空间是一级行，当前空间展开后把它的角色缩进列在下面（竖线引导线 + 15px 头像），每个角色行自带铅笔，直接编辑那个角色（不是当前角色时先切过去再开抽屉）；空间行悬停浮出「空间设置 / 删除」，展开区末尾是「新建角色」。搜索时按空间名 / 角色名 / 设定命中，命中的其他空间也会临时摊开。再往下是该角色的会话列表，新建会话的默认标题是创建时间（`2026-11-14 20:09`），之后不会被首条消息改名。两个外壳：桌面端 `Sidebar` 常驻左侧、不可收纳；窄屏 `LeftDrawer` 是遮罩式抽屉。断点 1024（`lib/hooks/use-wide-layout.ts`），App 按断点二选一挂载，不靠 CSS 藏——否则两份列表同时订阅 store，抽屉开着拖宽还会把 `drawer` 卡在 `"left"`，背景光斑一直 frozen |
+| 抽屉 | `src/components/drawers/{SettingsDrawer,SpaceDrawer}.tsx` + `ModelSettings.tsx` + `src/components/character/CharacterEditor.tsx` | 设置、空间、角色三个抽屉由 `store.drawer` 互斥（`"settings" / "space" / "character"`）；模型档案列表在设置抽屉内，点行用 `ui/Modal` 弹窗编辑（portal 到 body，Esc 在捕获阶段阻断，避免连带关掉下层抽屉）；模型档案与空间都是**本地草稿**，点保存才落库——新增档案取消后不留空条目；测试连接沿用档案自己的 endpoint / key / 参数，只把 `max_tokens` 压到 24。抽屉里只读「使用中」，切换在输入条上。**空间抽屉**六页：基础（名字 / 共享系统提示词 / 底图库）/ 角色 / 上下文 / 工作流 / 脚本 / 快捷语；点「编辑角色」前先 `await save()`，否则没保存的改动会跟着切换丢掉。**角色抽屉**只放「这个人是谁」：头像（就是这个角色的底图，2:3 圆角矩形，没底图才退回 emoji）、名字、角色设定、从空间底图库里挑一张、初始消息、删除（同空间只剩一个角色时禁用）。左栏的空间行悬停浮出「设置 / 删除」，删除会连带整层的角色、会话与消息，先 `window.confirm` 再动手；删的不是当前空间时不动当前会话 |
+| 聊天 | `src/components/chat/{ChatView,ChatHeader,MessageList,MessageItem,MessageActivity,Composer,Markdown}.tsx` | 全部接收 `space` + `character` 两个对象：顶栏标题是角色名、副标题 `空间 · 角色`。空态（还没消息）是头像 + 名字 + 角色设定 + 快捷语；**有消息后设定不消失**，压成列表顶部一张可收起的卡片，跟着消息一起滚走。消息操作（复制 / 编辑 / 重新生成 / 删除）；开场白消息屏蔽「重新生成」但保留复制删除；用户消息的编辑保存后**重跑模型**（编辑重发），角色回复的编辑只改落库的正文、不重跑模型，且会同步改写 `meta.variants` 里当前那一版的快照，否则切到别的版本再切回来，编辑会被旧快照盖掉；IME 保护；`MessageActivity` 把运行期日志与落库后的 `meta.logs` 归一成同一条活动流；重新生成留下的历史版本由 `meta.variants` 承载，正文下方 `‹ 2 / 3 ›` 切换 |
 | 流式回复面 | `src/components/agents/streaming-response.tsx` | beui 源码内联，无 npm 包。`status` 三态（streaming / complete / error）驱动 `aria-busy`；流式期间不出现操作条，结束后带 `y: 4 → 0` 淡入；内置复制 / 重新生成 / 有帮助 / 无帮助，`extraActions` 插槽追加本项目的删除与「模型 · 时间」；`labels` 换成中文；`contentClassName` 只调字号，排版仍交给 `.md` |
-| 输入条 | `src/components/chat/Composer.tsx` + `src/components/agents/prompt-input.tsx` | beui prompt-input 承载 textarea 与工具带：正文独占一行，下方工具带左侧是当前模型档案的 Select（选中即 `setActiveModel`，替代设置抽屉里原来的「设为当前」）、右侧发送 / 停止（图标切换动效 + 微弱投影）；快捷语与 token 估算留在卡片顶部，回车行为受 `settings.enterToSend` 控制。卡片投影走 `shadow-float-soft`（比抽屉 / 弹窗的 `shadow-float` 更贴边、更浅），焦点态用 `shadow-focus-soft` |
+| 输入条 | `src/components/chat/Composer.tsx` + `src/components/agents/prompt-input.tsx` | beui prompt-input 承载 textarea 与工具带：正文独占一行，下方工具带左侧是当前模型档案的 Select（选中即 `setActiveModel`，替代设置抽屉里原来的「设为当前」）、右侧发送 / 停止（图标切换动效 + 微弱投影）；快捷语（读的是空间的 `quickPhrases`）与 token 估算（按空间 + 角色装配）留在卡片顶部，回车行为受 `settings.enterToSend` 控制。卡片投影走 `shadow-float-soft`（比抽屉 / 弹窗的 `shadow-float` 更贴边、更浅），焦点态用 `shadow-focus-soft` |
 | 活动流 | `src/components/agents/agent-activity/` + `src/components/chat/MessageActivity.tsx` | beui 源码内联。运行期占用一行状态条（shimmer 标签 + `tabular-nums` 计时），结束后收成可展开的轨迹；本项目只喂 `step` 项（工作流节点日志），`search` / `tool` / `trace` 三种行样式与类型已装好但暂无数据源，留给后续工具调用 |
 | 编辑面板 | `src/components/character/ContextEditor.tsx`、`src/components/script/ScriptEditor.tsx`、`src/components/workflow/WorkflowEditor.tsx` | 原生 HTML5 拖拽排序 + 上下移按钮；装配预览走 `ui/Modal` 弹窗（不占抽屉版面，长内容自己滚）；脚本编辑器支持 Tab 插空格；工作流画布试运行不写库 |
 | 兜底 | `src/components/ErrorBoundary.tsx` | class 组件 `getDerivedStateFromError` |
@@ -159,16 +159,16 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 
 ### 2.8 生图链路
 
-> 目标不是「按一下出一张图」，而是**边聊边变**：角色每条回复顺带一句绘图提示词，画面以气泡为单位换一幕。底图固定为角色卡里那一张（正面全身照单图），不叠加上一轮的结果 —— 长相不会随着聊得越久越漂。
+> 目标不是「按一下出一张图」，而是**边聊边变**：角色每条回复顺带一句绘图提示词，画面以气泡为单位换一幕。底图固定为**当前角色从空间底图库里选中的那一张**（正面全身照），空间里可以囤多张、每个角色各挑一张，不叠加上一轮的结果 —— 长相不会随着聊得越久越漂。
 
 | 环节 | 入口文件 | 职责 | 关键决策 |
 | --- | --- | --- | --- |
 | 提示词摘取 | `src/lib/image-prompt.ts` | `extractImagePrompt()`：从回复正文里找出绘图 JSON（围栏或裸对象），返回「去掉 JSON 的正文 + 提示词 + 是否还有未闭合片段」 | 五档容错解析（原样 → 全角标点 → 裸换行转义 → 去尾逗号 → 裸键名）+ `scrapePrompt()` 抠句子兜底；全角标点只在结构位替换，字符串内的中文标点不动；括号配对带字符串状态机，围栏内不参与裸扫描，配对失败只前进一格；流式途中未闭合的围栏 / `{` 一旦看着像绘图 JSON 就截掉 |
-| 提示词编排 | `src/lib/image-prompt.ts` | `assembleImagePrompt()`：按有序块拼最终 prompt | 块类型 `character`（角色名 / 简介 / 描述）、`text`（硬编码，支持 `{{char}}` / `{{user}}` / `{{prompt}}`）、`prompt`（模型给的那句插入点）；块之间用换行连接，全部禁用 / 为空时退回模型原文 |
-| 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传底图打 `/v1/images/edits` —— 字段名固定 `image`（所有网关都认），只传一张；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 2:3 再压成 800×1200 WebP，抓不到（CORS / 外链）就退回原链接 |
-| 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` | 生成图：按 2:3 居中 cover 裁切后压成 800×1200 WebP 0.86，超体积再降一档 600×900 / 0.72；角色底图**不裁切**，只按长边 1280 等比缩小压，避免裁掉发型 / 肩线 / 道具 |
-| 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（上限 4，换会话即清空），避免并发把接口打到限流；底图恒定取角色卡 `image_seeds` 的第一张（老数据里的多张也只认第一张），不放链；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
-| 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 2:3 竖图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是整个内容区——桌面上内容区还要先扣掉 304 宽的左栏）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
+| 提示词编排 | `src/lib/image-prompt.ts` | `assembleImagePrompt()`：按有序块拼最终 prompt | 只有两种块：`text`（硬编码，支持 `{{char}}` / `{{user}}` / `{{prompt}}`）与 `prompt`（模型给的那句插入点）；块之间用换行连接，全部禁用 / 为空时退回模型原文。角色外形不再单独成块——要名字用 `{{char}}`，要固定外观就写进硬编码块 |
+| 绘图请求 | `src/lib/image-gen.ts` | `requestImage()` / `storeImageLocally()` | 默认图生图：`FormData` 传底图打 `/v1/images/edits` —— 字段名固定 `image`（所有网关都认），只传一张；其余参数逐字段进表单（对象序列化成 JSON 字符串），**不手写 Content-Type**；文生图整体 JSON 打 `/v1/images/generations`；返回形状兼容 `data[].b64_json / url`、`images[]`、裸 `url`；落库前把结果抓成 Blob，裁成 1:1 再压成 1024×1024 WebP，抓不到（CORS / 外链）就退回原链接 |
+| 图片压缩 | `src/lib/image.ts` | `prepareGeneratedImage()` / `prepareReferenceImage()` | 生成图：按 1:1 居中 cover 裁切后压成 1024×1024 WebP 0.86，超体积再降一档 768×768 / 0.72；空间底图**不裁切**，只按长边 1280 等比缩小压，避免裁掉发型 / 肩线 / 道具 |
+| 状态与调度 | `src/lib/store.ts` | `generateImage()` / `imageQueue` | 图片按「气泡 → 多版本」二维存（`images` 表），重新生图只追加不覆盖；绘图比聊天慢，撞上正在画时**排队**（FIFO，上限 4，换会话即清空），既避免并发把接口打到限流，也不会把画面画到另一个会话的气泡上；底图取 `character.activeSeed`（角色从空间底图库里挑的那张），为空才退回 `space.imageSeeds` 里第一张非空；`imageRun` 与 `stream` 分离，画图时聊天照常能发 |
+| 悬浮画面 | `src/components/image/ImageStage.tsx` | 可拖拽 / 可缩放的 1:1 方图画面组件 | 默认宽 = 聊天正文列宽 × 50%（`MessageList` 里 `data-chat-thread` 那个 `max-w-[760px]` 的实测宽度，不是整个内容区——桌面上内容区还要先扣掉 304 宽的左栏）；拖动与缩放只改内存，松手才 `setImageWidget(persist)`；右上角「重新生图 / 全部画面」与底部版本翻页平时淡出，hover / 聚焦淡入；`z-30` 压在抽屉（`z-40/50`）之下 |
 | 图库 | 同上 `ImageGallery` | 按气泡分组列出全部版本，可点选 / 删除 | 这是「中途演化的图不能丢」的落脚点：组件一次只显示一组，历史都在这里 |
 
 ---
@@ -194,9 +194,9 @@ RP-Studio/
    ├─ App.tsx                   # 背景层 + 左栏/内容列两栏铺满 + 抽屉编排 + 主题监听
    ├─ index.css                 # 设计令牌、全局样式、Markdown 排版、关键帧
    ├─ lib/
-   │  ├─ types.ts               # 领域类型：Character / Session / Message / ContextBlock / Workflow
-   │  ├─ db.ts                  # PGlite 实例、建表、版本化迁移、重置
-   │  ├─ repo.ts                # 仓储：CRUD / 导入导出 / 统计 / 消息截断
+   │  ├─ types.ts               # 领域类型：Space / Character / Session / Message / ContextBlock / Workflow
+   │  ├─ db.ts                  # PGlite 实例、建表、版本化迁移（含 v5 空间-角色拆分）、重置
+   │  ├─ repo.ts                # 仓储：空间与角色 CRUD / 导入导出（v2 + v1 兼容）/ 统计 / 消息截断
    │  ├─ store.ts               # zustand：数据流、发送与重新生成、流式状态、抽屉、Toast
    │  ├─ settings.ts            # 模型档案（列表/当前）归一化与旧版迁移、endpoint 规范化
    │  ├─ context.ts             # 上下文装配引擎（排序 / 负数下标 / role 合并 / 插值）
@@ -208,7 +208,7 @@ RP-Studio/
    │  ├─ ease.ts                # 动效曲线与 spring 常量（beui 组件共用）
    │  ├─ text-shimmer.ts        # shimmer 渐变的关键帧与类名（beui 组件共用）
    │  ├─ i18n.tsx               # beui 组件文案解析：labels > LocaleProvider > 中文默认
-   │  ├─ image.ts               # 图片预处理：背景 2560；生成图与底图裁成 2:3、800×1200 WebP
+   │  ├─ image.ts               # 图片预处理：背景 2560；生成图裁成 1:1、1024×1024 WebP
    │  ├─ image-prompt.ts        # 生图提示词：从回复里摘 JSON、按块拼装最终 prompt
    │  ├─ image-gen.ts           # 绘图请求：images/edits（multipart）与 images/generations（JSON）
    │  ├─ favicon.ts             # 站点 favicon URL 推导
@@ -224,12 +224,12 @@ RP-Studio/
    │  ├─ home/Backdrop.tsx      # 底色 → 自定义背景图 → 光斑漂移 → 网格遮罩
    │  ├─ chat/                  # ChatView / Header / MessageList / MessageItem / Markdown / Composer
    │  ├─ image/                 # ImageStage（悬浮画面 + 图库）/ ImagePromptEditor（块编排）
-   │  ├─ drawers/               # LeftDrawer / SettingsDrawer / CharacterDrawer / ModelSettings / ImageSettings / BackgroundSettings
-   │  ├─ character/ContextEditor.tsx
+   │  ├─ drawers/               # LeftDrawer / Sidebar / LeftPanel / SettingsDrawer / SpaceDrawer / ModelSettings / ImageSettings / BackgroundSettings
+   │  ├─ character/             # CharacterEditor（角色抽屉）/ CharacterAvatar（底图头像）/ ContextEditor（编排编辑）
    │  ├─ script/ScriptEditor.tsx
    │  └─ workflow/WorkflowEditor.tsx
    └─ data/
-      ├─ seed.ts               # 首次启动的三个示例角色
+      ├─ seed.ts               # 首次启动的三个示例空间（`雨夜江湖` 带两个角色）
       └─ image-preset.json     # 生图默认预设（JSON 指令 / 默认编排 / 预览例句）
 ```
 
@@ -240,17 +240,29 @@ RP-Studio/
 ### 4.1 数据模型（PGlite）
 
 ```sql
-characters(
-  id uuid pk, name text, avatar text, tagline text, description text,
-  greeting text, image_seeds jsonb, -- 角色底图 ["正面全身照"]（data URL / 外链；数组只为兼容老的多槽位数据）
-  image_seed text, -- 旧版单张底图，保留只为兼容旧备份，读写时当兜底
-  system_prompt text, context_blocks jsonb, quick_phrases jsonb,
-  workflow jsonb, script text, model_override jsonb, -- 旧版角色级模型覆盖，现不使用
+spaces(                            -- 一个空间 = 一个舞台：世界设定与整套流水线都挂在这里
+  id uuid pk, name text, avatar text,
+  system_prompt text,              -- 共享系统提示词，由编排里的「空间系统提示」块注入
+  image_seeds jsonb,               -- 底图库 ["正面全身照", …]（data URL / 外链），空间里可以囤多张
+  context_blocks jsonb, quick_phrases jsonb,
+  workflow jsonb, script text,
+  model_override jsonb,            -- 旧版角色级模型覆盖，现不使用
   created_at timestamptz, updated_at timestamptz
 )
 
-sessions(
-  id uuid pk, character_id uuid references characters(id) on delete cascade,
+characters(                        -- 空间里的一个角色：真正跟你对话的那一位
+  id uuid pk, space_id uuid references spaces(id) on delete cascade,
+  name text, avatar text,
+  greeting text,                   -- 初始消息：新建会话时作为第一条 assistant 消息写入
+  system_prompt text,              -- 角色设定：由「角色专属提示」块注入，也是会话首页展示的那段
+  active_seed text,                -- 从空间底图库里选中的那张；为空时退回 image_seeds 第一张
+  sort_order int,                  -- 同空间内的排序
+  created_at timestamptz, updated_at timestamptz
+)
+
+sessions(                          -- 会话挂在角色上：每个角色有自己独立的一套会话列表
+  id uuid pk, space_id uuid references spaces(id) on delete cascade,
+  character_id uuid references characters(id) on delete cascade,
   title text, pinned boolean default false,
   created_at timestamptz, updated_at timestamptz
 )
@@ -264,10 +276,10 @@ messages(
 
 images(
   id uuid pk, session_id uuid references sessions(id) on delete cascade,
-  character_id uuid, message_id uuid, -- 第一维：绑定哪条气泡
+  character_id uuid, message_id uuid, -- 第一维：绑定哪条气泡（character_id 记生成时的角色）
   prompt text,        -- 拼装后真正送进绘图模型的 prompt
   raw_prompt text,    -- 从回复 JSON 里摘到的原文，重新生图复用它
-  base_image_id uuid, -- 这一张用的底图；固定底图模式下为 null（用角色 image_seed）
+  base_image_id uuid, -- 这一张用的底图；固定底图模式下为 null（用角色当前选中的 active_seed）
   url text, model text, status text, error text,
   created_at timestamptz             -- 第二维：同 message_id 下按它排序
 )
@@ -276,34 +288,39 @@ settings(key text pk, value jsonb)
 schema_meta(id int pk, version int)
 ```
 
-- **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`，v3 补 `characters.image_seed` + `images` 表与两个索引），在事务内更新 `schema_meta`，升级不丢数据。
+- **迁移**：`db.ts` 的 `MIGRATIONS` 数组按 version 逐条执行（v1 建四表 + 两个索引，v2 补 `characters.greeting`，v3 补 `characters.image_seed` + `images` 表与两个索引，v4 把底图升级成 `image_seeds` 数组，v5 拆成「空间 + 角色」双层，v6 删角色上的 `tagline` / `description`，v7 删空间上的同名两列），在事务内更新 `schema_meta`，升级不丢数据。
+- **为什么删掉简介与描述**：这两栏只用于左栏副标题和一屏介绍，实际设定本来就写在提示词里——留着只会多出一份迟早和提示词不一致的摘要。现在角色设定（`characters.system_prompt`）就是唯一那份设定：它既进上下文，也在会话首页原样展示。
+- **v5 这一刀怎么切的**：老的 `characters` 表**整体改名成 `spaces`**（id 不变，会话与图片的老引用不用重算）→ 新建 `characters` 子表，一张老卡自动生成一个**同名角色**，继承开场白与当前底图，专属提示词留空 → `sessions.character_id` 改名 `space_id`，新增 `character_id` 并回填成该空间下的第一个角色 → `images.character_id` 由空间 id 重映射到子角色 id → 给老编排插一个 `kind: "character"` 块（用 `ord + 0.5` 排在 `system` 之后），专属提示词才有落点。所以升级后：名字 / 头像 / 系统提示词 / 编排 / 工作流 / 脚本 / 底图库都在空间上，角色只托管开场白、专属提示词与底图选择，旧会话照常能打开。
 - **模型档案**：一条档案 = `endpoint`（完整地址，含 `/chat/completions`）+ `apiKey` + `params`（请求体 JSON），模型名写在 `params.model` 里，新建档案预置 `model / stream / temperature / top_p` 四个键。`settings` 表的 `app` 行里存 `models: ModelProfile[]` + `activeModelId`。旧的单模型结构（`settings.app.model`）与旧的 `baseUrl` 字段由 `normalizeSettings()` 在 `init()` / 导入备份时迁移成一条档案（`baseUrl` 会补成完整 endpoint，旧参数会补上 `model` 与 `stream`）；已移除的全局「流式输出」开关在归一化时直接丢弃。空数组、重复 id、`activeModelId` 不指向任何档案都会在归一化时修正。
 - **ID**：浏览器 `crypto.randomUUID()` 生成，不依赖 Postgres 扩展；`uid(prefix)` 加前缀。
 - **主页背景**：`settings.app.background: { url, opacity, blur }`，没有单独的表或对象存储。上传的图片先在前端缩到长边 2560、转 WebP，通常压到几百 KB 再以 data URL 入库；`normalizeSettings()` 会丢弃非 `http(s)` / `blob` / `data:image` 的值并把 `opacity`、`blur` 夹回合法区间，所以坏数据最多让背景消失，不会把渲染层带崩。因为 data URL 体积不小，`setSettings(patch, { persist: false })` 允许只改内存——拖不透明度 / 模糊滑杆时走它，停手后才整行写 jsonb。
 - **写入策略**：流式过程只在内存累积，结束后一次性落库；停止 / 出错也保存已生成部分。
 - **重新生成 = 多版本**：对 assistant 消息重新生成时不做「删掉再插一条」，而是**沿用原消息的 id 与 createdAt**，生成完用同一个 id 写回，并把历史回答存进 `meta.variants`（`{ content, createdAt }[]`，含当前这一版），`meta.variantIndex` 指向当前版。`content` 列始终等于 `variants[variantIndex].content`，所以上下文装配、导出、复制都拿当前选中的那一版，不需要额外的读写路径。切换版本只改 `content` + `meta`，不产生新行；消息删除时版本跟着走。编辑用户消息（`editMessage`）视为换了前提，旧回答照旧丢弃。
-- **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。
+- **空间与角色**：空间拥有「世界设定 + 流水线」（系统提示词、编排、工作流、脚本、快捷语、底图库），角色只拥有「这个人是谁」（名字、头像、开场白、角色设定提示词、选中哪张底图）。头像不是单独上传的图：它就是**角色选中的那张底图**，到处按 2:3 圆角矩形裁——左栏角色行、顶栏、消息头、会话空态、空间的角色列表共用 `CharacterAvatar`，没底图或图挂了才退回 emoji 占位。**角色设定只有一份**：`characters.system_prompt` 既作为「角色专属提示」进入上下文，也在会话首页原文展示（`{{char}}` / `{{user}}` 按当前名字插值）；聊出第一条消息后它不会被藏起来，而是压成列表顶部的一张卡片跟着滚动，可收起再展开。所以改一次世界设定，空间下所有角色一起生效；改角色设定，只有那一个角色变。**空间至少保留一个角色**：没有角色就没有会话可聊，删到最后一个时界面会拦住。
+- **初始消息**：角色的 `greeting` 在**新建会话**时插值后作为一条 `assistant` 消息写入（`meta.greeting = true`，界面显示「开场」）。因此它天然进入历史、能被历史块取到，也能像普通消息一样复制 / 删除；留空则新会话显示角色介绍空态，**已存在的会话不会被补写**。换角色 = 换一整套会话，各自的初始消息互不影响。
 - **生图提示词**：绘图 JSON **不留在正文里** —— `finish()` 落库时就把 `content` 换成摘干净的台词，那句提示词单独存进 `meta.imagePrompt`，重新生图 / 切版本时用它。这样下一轮 `assembleContext()` 喂回模型的历史里没有 JSON：省 token，也不会让模型学会在正文里复读模板。「回复只有 JSON」时正文为空，气泡退化成一行「画面已更新」（还能编辑原文 / 重新生成 / 删除）。
   - 老数据由启动时的 `stripLegacyImageJson()` 就地清洗：先用 `content like '%{%'` 在 SQL 里筛出可疑行，只对真解析出提示词的消息改写正文与 `meta.variants`，`importData()` 后同样跑一次。
-- **图片二维结构**：`images` 表的 `message_id` 是第一维（绑定哪条气泡），同一 `message_id` 下的多行是第二维（多次重新生图，按 `created_at` 升序）。重新生图只 `insert` 新行，不覆盖旧图；图库按气泡分组展示全部版本。**第二维不是链**：所有图都拿角色卡的 `image_seed` 当底图（`base_image_id` 通常为 null），所以同一气泡的多版是「同一瞬间的不同候选」，翻页不会一版接一版地漂走；不同气泡之间的画面差异全部来自提示词。删除消息 / 截断历史时 `pruneImages()` 清掉失去落点的图；重新生成走「先删后插同 id」，所以要等消息写回之后再 prune。备份文件新增可选的 `images` 字段，旧备份导入时按空数组处理。
+- **图片二维结构**：`images` 表的 `message_id` 是第一维（绑定哪条气泡），同一 `message_id` 下的多行是第二维（多次重新生图，按 `created_at` 升序）。`character_id` 记生成时是哪个角色在聊。重新生图只 `insert` 新行，不覆盖旧图；图库按气泡分组展示全部版本。**第二维不是链**：所有图都拿当前角色选中的 `active_seed`（空间底图库里的一张）当底图（`base_image_id` 通常为 null），所以同一气泡的多版是「同一瞬间的不同候选」，翻页不会一版接一版地漂走；不同气泡之间的画面差异全部来自提示词。删除消息 / 截断历史时 `pruneImages()` 清掉失去落点的图；重新生成走「先删后插同 id」，所以要等消息写回之后再 prune。
+- **备份**：`exportData()` 产出 v2 格式 `{ app, version: 2, exportedAt, spaces, characters, sessions, messages, images?, settings }`——空间与角色分两张数组，靠 `spaceId` 关联。`importAll()` 也认 v1 老备份（只有 `characters` 一张表）：每张老卡折成「一个空间 + 一个同名角色」，系统提示词 / 编排 / 工作流 / 脚本 / 底图库留在空间，开场白与底图跟角色，专属提示词留空，老会话重映射到新角色 id 上，编排里补一个 `kind: "character"` 块。导入是单事务、先清五表再回灌，中途失败整批不落地。
 
-![角色卡初始消息](docs/greeting.png)
+![角色初始消息](docs/greeting.png)
 
 ### 4.2 上下文编排规范
 
-角色卡的 `contextBlocks` 是**有序数组**，顺序即最终 messages 顺序。
+空间的 `contextBlocks` 是**有序数组**，顺序即最终 messages 顺序。编排是空间的，空间下的角色共用同一份；`system` 与 `character` 两种块的区别只是**文字从哪来**：前者读 `space.systemPrompt`，后者读当前 `character.systemPrompt`。
 
 ```ts
 type ContextBlock =
-  | { id: string; kind: "system"; enabled: boolean; label?: string }
+  | { id: string; kind: "system"; enabled: boolean; label?: string }     // 空间共享系统提示词
+  | { id: string; kind: "character"; enabled: boolean; label?: string }  // 当前角色的角色设定（system_prompt）
   | { id: string; kind: "history"; enabled: boolean; from: number; to: number; label?: string }
   | { id: string; kind: "custom"; enabled: boolean; role: "system" | "user" | "assistant"; content: string; label?: string }
   | { id: string; kind: "image"; enabled: boolean; content: string; label?: string }
   | { id: string; kind: "user"; enabled: boolean; label?: string };
 ```
 
-- **生图 JSON 预设**：`kind: "image"` 是一条可编辑的 system 指令，只在顶栏图生图开关打开时进入上下文；关掉时角色卡里不显示、装配时记「图生图未开启」。打开开关会给还没有这条预设的角色补一份（`ensureImageDirectiveBlock`），老角色 / 导入的备份也走同一条路；装配时若开关开着但角色仍缺这个块，会兜底注入默认预设。
-
+- **角色专属提示**：`kind: "character"` 是一个没有 `content` 的空壳块——文字不在块里，在角色身上。位置可拖，想让它压在世界设定后面、历史前面就往上拖；也可以整个删掉（读的时候**不会偷偷补回去**，只在新空间 / 迁移时才生成）。装配时若这个块在、而角色没写专属提示词，会走兜底注入，不会产出空消息。
+- **生图 JSON 预设**：`kind: "image"` 是一条可编辑的 system 指令，只在顶栏图生图开关打开时进入上下文；关掉时空间设置里不显示、装配时记「图生图未开启」。打开开关会给还没有这条预设的空间补一份（`ensureImageDirectiveBlock`），老数据 / 导入的备份也走同一条路；装配时若开关开着但空间仍缺这个块，会兜底注入默认预设。
 - **负数下标**：`from = -5, to = -1` 取倒数第 5 条到倒数第 1 条；`0 → -1` 取全部。越界自动裁剪到 `[0, n-1]`，正数按 0 基绝对下标处理，`from > to` 自动交换。
 - **装配顺序**：逐块产出消息 → 任意相邻同 `role`（system / user / assistant）用 `\n\n` 连成一条（兼容要求严格交替的接口）→ 没有启用的 `user` 块时自动在末尾补当前输入。
 - **变量**：`interpolate()` 支持 `{{char}}` `{{user}}` `{{input}}` `{{time}}` `{{history}}`。注意 **system 块只注入 `char` / `user`**，所以在系统提示里写 `{{input}}` 会得到空串；`{{input}}` 与 `{{history}}` 实际用于自定义块与工作流模板。
@@ -324,7 +341,7 @@ type ContextBlock =
 - **校验**：缺 `input`、缺 `output`、无连线、存在指向已删除节点的悬空边，四类错误。
 - **端口与画布**：右侧圆点拖出连线，松开在目标节点 / 左侧输入圆点上完成（用 `document.elementFromPoint` + `closest("[data-node-id]")`）；`Delete` 删除选中节点，输入框聚焦时不生效。
 - **试运行**：不写库，直接在当前会话上下文上跑一遍，底部面板输出逐节点日志、耗时、字数与最终文本。
-- **默认关闭**：在角色卡「工作流」页开启后，聊天回复走编排，消息带「工作流」标记并可展开执行日志。
+- **默认关闭**：在空间设置的「工作流」页开启后，这个空间下所有角色的回复都走编排，消息带「工作流」标记并可展开执行日志。工作流属于空间：调一次，全体角色一起生效，只有 `{{char}}` 这类变量按当前角色取值。
 
 ### 4.4 脚本沙箱
 
@@ -341,13 +358,14 @@ ctx.messages.push({ role: "system", content: "写作提示：留白。" });
 return { text: "已注入提示", messages: ctx.messages };
 ```
 
-- 角色卡「脚本」页 = **前置脚本**：每次生成前执行；仅当返回 `messages` 非空时才替换实际请求的消息栈。当前实现未把前置脚本日志接到 UI。
+- 空间设置的「脚本」页 = **前置脚本**：这个空间下每次生成前执行；仅当返回 `messages` 非空时才替换实际请求的消息栈。当前实现未把前置脚本日志接到 UI。
+- `ctx.character` 给的是**当前角色**的 `name / systemPrompt`——脚本是空间的，但跑的时候知道是哪个角色在说话。
 - 工作流「脚本」节点 = 编排内执行，日志会进入节点日志，只影响后续节点。
 - 沙箱**不是权限隔离**：Worker 内仍可访问 `fetch` 等全局能力，超时只是兜底。
 
 ### 4.5 生图规范
 
-**约定**：图生图开关打开时，角色卡的上下文块里会有一条可编辑的 system 预设（`kind: "image"`），要求聊天模型在正文后返回一段 JSON，其中带一个绘图提示词键。默认文案在 `context.ts` 的 `DEFAULT_IMAGE_DIRECTIVE`，可直接在角色卡「提示词编排」里改。
+**约定**：图生图开关打开时，空间的上下文块里会有一条可编辑的 system 预设（`kind: "image"`），要求聊天模型在正文后返回一段 JSON，其中带一个绘图提示词键。默认文案在 `context.ts` 的 `DEFAULT_IMAGE_DIRECTIVE`，可直接在空间设置的「上下文」页里改。
 
 ```json
 { "生图提示词": "雨夜，湿漉漉的青石街道，霓虹映在水面，女孩收起黑伞回头，半身，逆光" }
@@ -365,13 +383,14 @@ return { text: "已注入提示", messages: ctx.messages };
   ```
 
   块之间用换行连接；全部禁用 / 为空时退回模型给的原文，绝不发空 prompt。**角色外形不再单独成块**——需要角色名时用 `{{char}}`，需要固定外观就写进硬编码块。
-- **预设**：默认的「生图 JSON 指令」「默认编排」「预览样例句」都在 `src/data/image-preset.json`，改完即可（开发服务器热更新，线上要重新构建）。`src/lib/image-presets.ts` 只负责读取与兜底：`prompt` 块缺失会自动补回，字段写坏会退回内置文案并在控制台警告。这份只是**默认值**——已存在的角色卡 / 设置里存的是各自的副本，不受影响；新建角色卡、或给旧数据补块时才取它。
-- **请求**：生图档案 = `endpoint` + `apiKey` + `params`(JSON) + `mode`。`mode: "edit"`（默认）走 multipart，角色底图是文件、`prompt` 是拼装结果，其余参数逐字段进表单；底图固定单张、字段名 `image`（所有网关都认）。`mode: "generate"`（不建议）整体 JSON 作为请求体。比例固定 **2:3 竖图**，默认 `size: 1024x1536`（老档案里的 `1024x1024` 在规范化时静默升级）。
-- **裁切压缩**：接口返回的图不管什么比例，落库前都按 2:3 居中 cover 裁切（短边铺满、长边居中截掉），再压成 800×1200 WebP；超过体积上限再降一档到 600×900 / 0.72 画质。角色底图走另一条链路：**不裁切**，只按长边 1280 等比缩小压成 WebP —— 参考图是给模型看人长什么样的，裁掉两侧可能正好裁掉发型、肩线或手里的道具。
-- **底图固定**：不再链式演化。所有图都以角色卡 `image_seeds` 的第一张（正面全身照单图）为参考，画面差异只来自提示词；重新生图的多个版本因此天然处在同一起点。
-  - 为什么只留一张：给多角度参考时模型会在几个朝向之间折中，脸和身材反而更容易跑偏；正面全身一张的效果实测最好。
+- **预设**：默认的「生图 JSON 指令」「默认编排」「预览样例句」都在 `src/data/image-preset.json`，改完即可（开发服务器热更新，线上要重新构建）。`src/lib/image-presets.ts` 只负责读取与兜底：`prompt` 块缺失会自动补回，字段写坏会退回内置文案并在控制台警告。这份只是**默认值**——已存在的空间 / 设置里存的是各自的副本，不受影响；新建空间、或给旧数据补块时才取它。
+- **请求**：生图档案 = `endpoint` + `apiKey` + `params`(JSON) + `mode`。`mode: "edit"`（默认）走 multipart，底图是文件、`prompt` 是拼装结果，其余参数逐字段进表单；底图固定单张、字段名 `image`（所有网关都认）。`mode: "generate"`（不建议）整体 JSON 作为请求体。比例固定 **1:1 方图**，默认 `size: 1024x1024`（老档案里的 `1024x1536` 在规范化时静默降级）。
+- **裁切压缩**：接口返回的图不管什么比例，落库前都按 1:1 居中 cover 裁切（短边铺满、长边居中截掉），再压成 1024×1024 WebP；超过体积上限再降一档到 768×768 / 0.72 画质。空间底图走另一条链路：**不裁切**，只按长边 1280 等比缩小压成 WebP —— 参考图是给模型看人长什么样的，裁掉两侧可能正好裁掉发型、肩线或手里的道具。
+- **底图固定**：不再链式演化。所有图都以当前角色选中的那张（`character.active_seed`）为参考，画面差异只来自提示词；重新生图的多个版本因此天然处在同一起点。
+  - 为什么只留一张参考：给多角度参考（三视图）时模型会在几个朝向之间折中，脸和身材反而更容易跑偏；正面全身一张、双手双脚完整入画最稳。
+  - 视角本身不写进预设：预设里写死构图会顶掉用户自己编排里的镜头要求（想要全身却一直被拉成 3/4）。`LEGACY_VIEW_TEXTS` 只做减法——把历代预设补进去的视图括号（「（正面 / 侧面 / 背面）」等）清掉，现在只留下「用哪张底图」。
   - 底图建议洗成西装、古风汉服这类「模型没有服装约束时的默认设定」——具体选哪种跟接入的模型和角色时代有关，需要自己试；底图本身带着长期要保留的那身衣服时，后续换装换动作最稳。
-  - 入口是角色卡基础页的一个上传框，存的是单元素数组（老数据里的多槽位只取第一张）。没传底图又选了图生图会直接提示去上传，不会偷偷退化成文生图。`image_seed` 旧列保留不删，只在读老数据 / 导入旧备份时当兜底。
+  - 入口分两层：**空间设置 → 基础**里传底图（可多选，每张都进 `space.image_seeds`），**角色抽屉**里点缩略图挑一张，写进 `character.active_seed`；新建角色默认就落在空间底图库的第一张上。没选底图又开了图生图会直接提示去上传，不会偷偷退化成文生图。老数据只有一个值、没有列表时，读出来当列表的第一张。
 - **调度**：绘图请求慢于聊天，撞上正在画时排队（上限 4），换会话清空队列——那些任务绑的是上一个会话的气泡，留着只会画到没人在看的对话上。
 
 ---
@@ -383,9 +402,11 @@ return { text: "已注入提示", messages: ctx.messages };
 ### 整体印象与页面骨架
 
 ```text
-请做一个安静、留白充足的对话工作台。它不是那种布满卡片和边框的仪表盘：整个页面只有一条居中的、宽度适合阅读的内容列，左右留出大片呼吸空间，列的两侧用极淡的边界把内容从背景里轻轻托起来。
+请做一个安静、留白充足的对话工作台。它不是那种布满卡片和边框的仪表盘：整页只有一条宽度适合阅读的内容列，内容之外留出大片呼吸空间，列的边缘用极淡的边界把文字从背景里轻轻托起来。
 
-页面分两层。底下一层是环境，固定不动、不参与滚动、不拦截鼠标，只是让空白区域不至于死板；上面一层是内容，承担所有信息和操作。设置、角色卡、会话列表这些东西不要挤进内容列，而是从侧边滑出来的面板，用完就走，不常驻在画面里。
+页面分两层。底下一层是环境，固定不动、不参与滚动、不拦截鼠标，只是让空白区域不至于死板；上面一层是内容，承担所有信息和操作。设置、空间编辑、角色编辑这些不要挤进内容列，而是从侧边滑出来的面板，用完就走，不常驻在画面里。
+
+桌面端左侧留一条安静的栏，把「在哪儿」一次说清：最上面是空间列表，点一个就进那个世界；选中空间后，它下面浮出这个空间里的角色，用一排可点的名字横向铺开，谁在说话一目了然；再往下才是这个角色的会话列表。三层用留白和字重分开，别用三条分割线把它们切成三块——从上到下是一个逐渐具体的过程，视觉上也该是逐渐具体的。换角色就是换一整套会话，切换时列表原地替换，不要把整页跳一下。窄屏时这一栏收进侧滑面板，内容列铺满。
 
 数据还没准备好、或者加载失败的时候，也要维持同样的气质：给一句温和的说明和一个明确的出口，不要露出浏览器默认的错误或一片空白。
 
@@ -439,7 +460,7 @@ return { text: "已注入提示", messages: ctx.messages };
 ```text
 请把两种消息做成明显不对称的观感：角色的回复不加气泡、不加底色，像正文一样自然铺在内容列里，Markdown 排版要舒展，代码块、引用和列表各有分寸；用户的发言则收进一枚右对齐的浅色气泡，圆角柔和，靠近发送方向的那一个角收得更紧，颜色从主题色里轻轻带出来；气泡四周带一层几乎察觉不到的浮起感，让它轻轻离开背景，又不要描边。
 
-消息悬停时才浮出复制、编辑、重新生成、删除这些操作；键盘聚焦时也必须能出现，不能只伺候鼠标。角色的头像与名字缩成正文上方的一行小字——**不要做成左侧头像列**，回复要从内容列左缘一直排到右缘，任何固定的左侧留白都会让长段落读起来像被压缩了一截。角色的回复是一块独立的「回复面」：生成中只有正文，不跟闪烁的打字光标，Markdown 边到边排，段落和列表不能因为后来居上的文字而跳动；等待第一个字时用几个依次起伏的小圆点。写完之后操作条才从正文下方轻轻浮出（复制、重新生成、有帮助 / 没帮助，加上本项目的删除与「模型 · 时间」），生成中这些操作一概不出现。复制成功给一个短暂的图标反馈就够了。开场白、工作流回复、已编辑这类状态用很小的文字带过，不要做成显眼的徽章。
+消息悬停时才浮出复制、编辑、重新生成、删除这些操作；键盘聚焦时也必须能出现，不能只伺候鼠标。角色的头像（就是这个角色的底图，2:3 小竖图）与名字缩成正文上方的一行小字——**不要做成左侧头像列**，回复要从内容列左缘一直排到右缘，任何固定的左侧留白都会让长段落读起来像被压缩了一截。角色的回复是一块独立的「回复面」：生成中只有正文，不跟闪烁的打字光标，Markdown 边到边排，段落和列表不能因为后来居上的文字而跳动；等待第一个字时用几个依次起伏的小圆点。写完之后操作条才从正文下方轻轻浮出（复制、重新生成、有帮助 / 没帮助，加上本项目的删除与「模型 · 时间」），生成中这些操作一概不出现。复制成功给一个短暂的图标反馈就够了。开场白、工作流回复、已编辑这类状态用很小的文字带过，不要做成显眼的徽章。
 
 重新生成留下的历史版本在正文下方用一对小箭头夹一个分数表示（`‹ 2 / 3 ›`），字比操作条还小一档、颜色落到最弱的一档，不跟正文抢注意力；只有一版时整行不出现，别让人去数一个恒为 1/1 的计数器。切换要即时、不闪不抖，正文原地换成另一版，不重放打字机。
 

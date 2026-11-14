@@ -19,6 +19,7 @@ import { extractImagePrompt } from "../../lib/image-prompt";
 import { Markdown } from "./Markdown";
 import { MessageActivity, type RunLog } from "./MessageActivity";
 import { Button, IconButton } from "../ui/Button";
+import { CharacterAvatar } from "../character/CharacterAvatar";
 import {
   StreamingResponse,
   type StreamingResponseMessages,
@@ -39,7 +40,10 @@ const RESPONSE_LABELS: Partial<StreamingResponseMessages> = {
 interface MessageItemProps {
   message: Message;
   name: string;
-  avatar: string;
+  /** 头像的 emoji 兜底（角色没选底图、或图挂了时用它） */
+  avatarEmoji: string;
+  /** 角色底图：有值时头像就是这张 2:3 竖图，用户消息不传 */
+  avatarSeed?: string;
   streaming?: boolean;
   /** 流式运行态：起始时间与实时日志，喂给顶部的活动流 */
   live?: { startedAt: number | null; logs: RunLog[] };
@@ -56,7 +60,8 @@ interface MessageItemProps {
 function MessageItemBase({
   message,
   name,
-  avatar,
+  avatarEmoji,
+  avatarSeed,
   streaming,
   live,
   onEdit,
@@ -169,13 +174,20 @@ function MessageItemBase({
     );
   }
 
+  // 角色头像 = 这个角色的底图（2:3 竖图）；没有底图时退回 emoji 圆点
+  const avatarNode = avatarSeed ? (
+    <CharacterAvatar seed={avatarSeed} emoji={avatarEmoji} className="w-[17px]" emojiSize={11} />
+  ) : (
+    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
+      {avatarEmoji}
+    </span>
+  );
+
   // 角色的表头（头像 + 名字 + 状态标签）在「查看」和「编辑」两种形态下都要在，
   // 提出来复用，别为了让编辑器顶上也有名字而复制一份。
   const replyHeader = (
     <div className="mb-1 flex items-center gap-2">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
-        {avatar}
-      </span>
+      {avatarNode}
       <span className="text-[12.5px] font-semibold text-fg-muted">{name}</span>
       {message.status === "stopped" && (
         <span className="rounded-full bg-surface-2 px-inset-pill py-1 text-[10px] text-fg-subtle">已停止</span>
@@ -228,9 +240,7 @@ function MessageItemBase({
         transition={{ duration: 0.24 }}
         className="group flex items-center gap-2 text-[11.5px] text-fg-subtle"
       >
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] leading-none">
-          {avatar}
-        </span>
+        {avatarNode}
         <ImageIcon size={12} className="shrink-0 text-primary/70" />
         <span>画面已更新</span>
         <span className="tabular-nums opacity-70">{formatTime(message.createdAt)}</span>

@@ -2,14 +2,18 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import { useStore } from "../../lib/store";
-import type { Character, Message } from "../../lib/types";
+import type { Character, Message, Space } from "../../lib/types";
+import { interpolate } from "../../lib/context";
+import { CharacterAvatar, characterSeed } from "../character/CharacterAvatar";
 import { MessageItem } from "./MessageItem";
 
 export const MessageList = memo(function MessageList({
+  space,
   character,
   onQuickPhrase,
   bottomInset = 140,
 }: {
+  space: Space;
   character: Character;
   onQuickPhrase: (text: string) => void;
   /** 悬浮输入层高度，消息列表据此在底部预留空间，避免遮挡最后几行 */
@@ -24,6 +28,9 @@ export const MessageList = memo(function MessageList({
   const removeMessage = useStore((s) => s.removeMessage);
   const switchVariant = useStore((s) => s.switchVariant);
   const branchConversation = useStore((s) => s.branchConversation);
+
+  // 头像用的那张底图：角色自己选的，没选就退回空间底图库第一张
+  const seed = characterSeed(character, space);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -107,25 +114,34 @@ export const MessageList = memo(function MessageList({
             className="mx-auto flex w-full max-w-[760px] flex-col gap-5"
           >
             {messages.length === 0 && !streaming ? (
-              <CharacterIntro character={character} onQuickPhrase={onQuickPhrase} />
+              <CharacterIntro
+                space={space}
+                character={character}
+                onQuickPhrase={onQuickPhrase}
+              />
             ) : (
-              messages.map((message) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  name={message.role === "user" ? "你" : character.name}
-                  avatar={message.role === "user" ? "🫧" : character.avatar}
-                  onEdit={editMessage}
-                  onRegenerate={regenerate}
-                  onDelete={removeMessage}
-                  onSwitchVariant={switchVariant}
-                  onBranch={branchConversation}
-                  disabled={streaming}
-                />
-              ))
+              <>
+                {/* 有消息之后设定也不能消失：压成列表顶部的一块，随消息一起滚走 */}
+                <CharacterBrief key={character.id} character={character} seed={seed} />
+                {messages.map((message) => (
+                  <MessageItem
+                    key={message.id}
+                    message={message}
+                    name={message.role === "user" ? "你" : character.name}
+                    avatarEmoji={message.role === "user" ? "🫧" : character.avatar}
+                    avatarSeed={message.role === "user" ? "" : seed}
+                    onEdit={editMessage}
+                    onRegenerate={regenerate}
+                    onDelete={removeMessage}
+                    onSwitchVariant={switchVariant}
+                    onBranch={branchConversation}
+                    disabled={streaming}
+                  />
+                ))}
+              </>
             )}
 
-            {streaming && <StreamingBubble character={character} />}
+            {streaming && <StreamingBubble character={character} seed={seed} />}
 
             <div ref={bottomRef} className="h-2" />
           </div>
@@ -160,7 +176,7 @@ const noop = () => {};
  * 正在写入的那一条。store 里的 buffer 每个 chunk 都会换引用，
  * 把它单独关在这里订阅，外面的列表、顶栏、输入层就不用跟着每个 chunk 重渲染。
  */
-function StreamingBubble({ character }: { character: Character }) {
+function StreamingBubble({ character, seed }: { character: Character; seed: string }) {
   const buffer = useStore((s) => s.stream.buffer);
   const logs = useStore((s) => s.stream.logs);
   const startedAt = useStore((s) => s.stream.startedAt);
@@ -188,7 +204,8 @@ function StreamingBubble({ character }: { character: Character }) {
     <MessageItem
       message={message}
       name={character.name}
-      avatar={character.avatar}
+      avatarEmoji={character.avatar}
+      avatarSeed={seed}
       streaming
       live={live}
       onEdit={noop}
@@ -200,13 +217,61 @@ function StreamingBubble({ character }: { character: Character }) {
   );
 }
 
+/**
+ * 角色设定（已经有消息时的形态）：压在消息列表顶部，不因为聊起来就消失。
+ * 默认展开；太长时卡片内部自己滚，用户可以收起，收起后再点展开。
+ */
+function CharacterBrief({ character, seed }: { character: Character; seed: string }) {
+  const userName = useStore((s) => s.settings.userName);
+  const [open, setOpen] = useState(true);
+  const setting = useMemo(
+    () => interpolate(character.systemPrompt, { char: character.name, user: userName }).trim(),
+    [character.systemPrompt, character.name, userName],
+  );
+
+  if (!setting) return null;
+
+  return (
+    <div className="rounded-2xl bg-surface-2/55 px-inset-lg py-3">
+      <div className="flex items-center gap-2">
+        <CharacterAvatar seed={seed} emoji={character.avatar} className="w-[13px]" emojiSize={9} />
+        <span className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
+          角色设定
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-fg-subtle/80">{character.name}</span>
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          className="shrink-0 rounded-full px-1.5 py-0.5 text-[11px] text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg"
+        >
+          {open ? "收起" : "展开"}
+        </button>
+      </div>
+      {open && (
+        <p className="mt-2 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-fg-muted">
+          {setting}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CharacterIntro({
+  space,
   character,
   onQuickPhrase,
 }: {
+  space: Space;
   character: Character;
   onQuickPhrase: (text: string) => void;
 }) {
+  const userName = useStore((s) => s.settings.userName);
+  // 设定原文里可能有 {{char}} / {{user}}：展示插值后的版本，和真正送进模型的一致
+  const setting = useMemo(
+    () => interpolate(character.systemPrompt, { char: character.name, user: userName }).trim(),
+    [character.systemPrompt, character.name, userName],
+  );
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -217,28 +282,40 @@ function CharacterIntro({
       <div className="flex flex-col items-center text-center">
         <div className="relative">
           <div className="absolute inset-0 -z-10 scale-125 rounded-full bg-primary/18 blur-2xl" />
-          <div className="flex h-[72px] w-[72px] items-center justify-center rounded-[26px] bg-surface-2 text-[34px] shadow-card">
-            {character.avatar}
-          </div>
+          <CharacterAvatar
+            seed={characterSeed(character, space)}
+            emoji={character.avatar}
+            alt={character.name}
+            className="w-[100px] shadow-card"
+            rounded="rounded-[18px]"
+            emojiSize={34}
+          />
         </div>
         <h2 className="mt-4 text-[22px] font-semibold tracking-[-0.02em] text-fg">{character.name}</h2>
-        {character.tagline && (
-          <p className="mt-1 text-[13px] text-fg-muted">{character.tagline}</p>
-        )}
-        {character.description && (
-          <p className="mt-3 max-w-[440px] text-balance text-[13px] leading-relaxed text-fg-muted">
-            {character.description}
+        {setting ? (
+          <div className="mt-5 w-full max-w-[520px] rounded-2xl bg-surface-2/70 px-inset-lg py-4 text-left">
+            <p className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
+              角色设定
+            </p>
+            <p className="max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-fg-muted">
+              {setting}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-3 max-w-[440px] text-[12.5px] leading-relaxed text-fg-subtle">
+            这个角色还没写设定。点左栏底部的「角色编辑」补一段，它会显示在这里，也会进入每次对话的上下文。
           </p>
         )}
+        <p className="mt-3 text-[11.5px] text-fg-subtle">来自空间「{space.name}」</p>
       </div>
 
-      {character.quickPhrases.length > 0 && (
+      {space.quickPhrases.length > 0 && (
         <div className="mt-8">
           <p className="mb-2.5 text-center text-[11px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
             试试这样开场
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {character.quickPhrases.slice(0, 4).map((phrase) => (
+            {space.quickPhrases.slice(0, 4).map((phrase) => (
               <button
                 key={phrase.id}
                 onClick={() => onQuickPhrase(phrase.content)}
@@ -253,9 +330,9 @@ function CharacterIntro({
       )}
 
       <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-[11px] text-fg-subtle">
-        <Capability>角色设定</Capability>
+        <Capability>共享设定</Capability>
+        <Capability>专属提示</Capability>
         <Capability>画面同步</Capability>
-        <Capability>自定义工作流</Capability>
         <Capability>数据只存本地</Capability>
       </div>
     </motion.div>

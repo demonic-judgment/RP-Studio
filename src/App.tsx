@@ -9,7 +9,8 @@ import { ImageStage } from "./components/image/ImageStage";
 import { LeftDrawer } from "./components/drawers/LeftDrawer";
 import { Sidebar } from "./components/drawers/Sidebar";
 import { SettingsDrawer } from "./components/drawers/SettingsDrawer";
-import { CharacterDrawer } from "./components/drawers/CharacterDrawer";
+import { SpaceDrawer } from "./components/drawers/SpaceDrawer";
+import { CharacterEditor } from "./components/character/CharacterEditor";
 import { Toasts } from "./components/ui/Toasts";
 import { Button } from "./components/ui/Button";
 
@@ -102,7 +103,8 @@ export default function App() {
 
       {wide ? null : <LeftDrawer />}
       <SettingsDrawer />
-      <CharacterDrawer />
+      <SpaceDrawer />
+      <CharacterEditor />
       <Toasts />
     </div>
   );

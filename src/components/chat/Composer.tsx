@@ -1,7 +1,7 @@
 import { type KeyboardEvent, useDeferredValue, useEffect, useMemo, useRef } from "react";
 import { Sparkles } from "lucide-react";
 import { useStore } from "../../lib/store";
-import type { Character } from "../../lib/types";
+import type { Character, Space } from "../../lib/types";
 import { estimateTokens } from "../../lib/utils";
 import { assembleContext } from "../../lib/context";
 import { PromptInput, type PromptInputMessages, type PromptModel } from "../agents/prompt-input";
@@ -18,6 +18,7 @@ const PROMPT_LABELS: Partial<PromptInputMessages> = {
 };
 
 export function Composer({
+  space,
   character,
   value,
   onChange,
@@ -26,6 +27,7 @@ export function Composer({
   onStop,
   onHeightChange,
 }: {
+  space: Space;
   character: Character;
   value: string;
   onChange: (value: string) => void;
@@ -65,6 +67,7 @@ export function Composer({
     if (!settings.showTokenEstimate || !deferredValue.trim()) return 0;
     try {
       const assembled = assembleContext({
+        space,
         character,
         history: messages,
         input: deferredValue,
@@ -75,7 +78,7 @@ export function Composer({
     } catch {
       return estimateTokens(deferredValue);
     }
-  }, [character, messages, settings.showTokenEstimate, settings.userName, settings.imageEnabled, deferredValue]);
+  }, [space, character, messages, settings.showTokenEstimate, settings.userName, settings.imageEnabled, deferredValue]);
 
   const insertPhrase = (content: string) => {
     onChange(value.trim() ? `${value.trim()}\n${content}` : content);
@@ -125,14 +128,14 @@ export function Composer({
         className="pointer-events-auto mx-auto w-full max-w-[820px] px-3 pb-4 sm:px-5 sm:pb-5"
       >
         <div className="rounded-[26px] bg-surface/90 p-2.5 shadow-float-soft backdrop-blur-xl transition-shadow focus-within:shadow-focus-soft dark:bg-surface-2/95">
-          {(character.quickPhrases.length > 0 || tokens > 0) && (
+          {(space.quickPhrases.length > 0 || tokens > 0) && (
             <div className="flex items-center gap-2 px-1 pb-1.5">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
                 <span className="flex shrink-0 items-center gap-1 pl-1 pr-0.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-fg-subtle">
                   <Sparkles size={11} />
                   快捷语
                 </span>
-                {character.quickPhrases.map((phrase) => (
+                {space.quickPhrases.map((phrase) => (
                   <button
                     key={phrase.id}
                     type="button"

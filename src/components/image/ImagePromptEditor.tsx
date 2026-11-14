@@ -92,7 +92,12 @@ export function ImagePromptEditor({
 
       <div className="space-y-2">
         {blocks.map((block, index) => {
-          const meta = imageBlockLabel[block.kind];
+          // 索引可能取到 undefined（设置里的脏数据 / 更早版本留下的块）：退回一条兜底文案，别让整页崩
+          const meta = imageBlockLabel[block.kind] ?? {
+            label: "未知块",
+            hint: "来自更早的版本，可以删掉",
+            tone: "bg-surface-3 text-fg-muted",
+          };
           const isOpen = expanded === block.id;
           const summary =
             block.kind === "text"

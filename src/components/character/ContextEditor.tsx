@@ -13,14 +13,16 @@ import {
   Sparkles,
   Trash2,
   Type,
+  UserRound,
 } from "lucide-react";
-import type { Character, ContextBlock, Message, Role } from "../../lib/types";
+import type { Character, ContextBlock, Message, Role, Space } from "../../lib/types";
 import {
   DEFAULT_IMAGE_DIRECTIVE,
   assembleContext,
   blockKindMeta,
   defaultImageDirectiveBlock,
   describeHistoryBlock,
+  isKnownBlockKind,
   newBlockId,
 } from "../../lib/context";
 import { cn } from "../../lib/utils";
@@ -30,6 +32,7 @@ import { Segmented } from "../ui/Tabs";
 import { Switch } from "../ui/Form";
 
 export function ContextEditor({
+  space,
   character,
   blocks,
   onChange,
@@ -37,6 +40,7 @@ export function ContextEditor({
   userName,
   imageEnabled,
 }: {
+  space: Space;
   character: Character;
   blocks: ContextBlock[];
   onChange: (blocks: ContextBlock[]) => void;
@@ -69,7 +73,8 @@ export function ContextEditor({
     if (kind === "history") block = { id: newBlockId(), kind, enabled: true, from: -12, to: -1 };
     else if (kind === "custom")
       block = { id: newBlockId(), kind, enabled: true, role: "system", content: "" };
-    else if (kind === "system") block = { id: newBlockId(), kind, enabled: true };
+    else if (kind === "system" || kind === "character")
+      block = { id: newBlockId(), kind, enabled: true };
     else if (kind === "image") block = defaultImageDirectiveBlock();
     else block = { id: newBlockId(), kind, enabled: true };
     onChange([...blocks, block]);
@@ -78,16 +83,18 @@ export function ContextEditor({
 
   const hasImageBlock = blocks.some((block) => block.kind === "image");
 
+  // 编排是空间的，角色只贡献自己那段专属提示词：预览按「当前编排 + 当前角色」跑一遍
   const preview = useMemo(
     () =>
       assembleContext({
-        character: { ...character, contextBlocks: blocks },
+        space: { ...space, contextBlocks: blocks },
+        character,
         history,
         input: "（这里预览当前用户输入）",
         userName,
         imageEnabled,
       }),
-    [blocks, character, history, userName, imageEnabled],
+    [blocks, space, character, history, userName, imageEnabled],
   );
 
   return (
@@ -109,8 +116,23 @@ export function ContextEditor({
         {blocks.map((block, index) => {
           // 开关关着时不显示这条预设，但数组里保留，重新打开即恢复
           if (block.kind === "image" && !imageEnabled) return null;
+          const known = isKnownBlockKind(block.kind);
           const meta = blockKindMeta(block.kind);
           const isOpen = expanded === block.id;
+          // 不认识的块只展示、不崩：装配时本来就会跳过它，界面也没必要白屏
+          const summary = !known
+            ? `无法识别的块（kind: ${String((block as { kind?: unknown }).kind ?? "缺失")}），删掉即可`
+            : block.kind === "history"
+              ? `${describeHistoryBlock(block.from, block.to)} · 历史共 ${history.length} 条`
+              : block.kind === "custom"
+                ? `${block.role}：${block.content || "空内容"}`
+                : block.kind === "system"
+                  ? space.systemPrompt || "尚未填写共享提示"
+                  : block.kind === "character"
+                    ? character.systemPrompt || `当前角色「${character.name}」未填写专属提示`
+                    : block.kind === "image"
+                      ? block.content.split("\n")[0] || "未填写预设"
+                      : "当前输入会插入到这里";
           const icon =
             block.kind === "history" ? (
               <History size={13} />
@@ -120,6 +142,8 @@ export function ContextEditor({
               <MessageSquare size={13} />
             ) : block.kind === "image" ? (
               <ImageIcon size={13} />
+            ) : block.kind === "character" ? (
+              <UserRound size={13} />
             ) : (
               <Sparkles size={13} />
             );
@@ -178,15 +202,7 @@ export function ContextEditor({
                     className="mt-1 flex w-full items-start gap-1 text-left"
                   >
                     <span className="line-clamp-1 flex-1 text-[12px] leading-relaxed text-fg-muted">
-                      {block.kind === "history"
-                        ? `${describeHistoryBlock(block.from, block.to)} · 历史共 ${history.length} 条`
-                        : block.kind === "custom"
-                          ? `${block.role}：${block.content || "空内容"}`
-                          : block.kind === "system"
-                            ? character.systemPrompt || "尚未填写系统提示"
-                            : block.kind === "image"
-                              ? block.content.split("\n")[0] || "未填写预设"
-                              : "当前输入会插入到这里"}
+                      {summary}
                     </span>
                     <ChevronDown
                       size={13}
@@ -232,11 +248,29 @@ export function ContextEditor({
                     className="overflow-hidden"
                   >
                     <div className="space-y-3 border-t border-line px-inset-sm py-3">
+                      {!known && (
+                        <p className="text-[11.5px] leading-relaxed text-fg-subtle">
+                          这个块的类型是「{String((block as { kind?: unknown }).kind ?? "缺失")}」，当前版本不认它：
+                          装配时会被跳过，不影响对话。直接删掉就行。
+                        </p>
+                      )}
+
                       {block.kind === "system" && (
                         <div>
-                          <p className="mb-1 text-[11px] text-fg-subtle">来自角色设定（在「基础」里编辑）</p>
+                          <p className="mb-1 text-[11px] text-fg-subtle">空间共享提示（在空间设置的「基础」里编辑）</p>
                           <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-inset-lg py-2.5 font-sans text-[12px] leading-relaxed text-fg-muted">
-                            {character.systemPrompt || "（尚未填写系统提示）"}
+                            {space.systemPrompt || "（尚未填写共享提示）"}
+                          </pre>
+                        </div>
+                      )}
+
+                      {block.kind === "character" && (
+                        <div>
+                          <p className="mb-1 text-[11px] text-fg-subtle">
+                            当前角色「{character.name}」的专属提示（在角色编辑里改）
+                          </p>
+                          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-inset-lg py-2.5 font-sans text-[12px] leading-relaxed text-fg-muted">
+                            {character.systemPrompt || "（这个角色还没写专属提示）"}
                           </pre>
                         </div>
                       )}
@@ -370,7 +404,8 @@ export function ContextEditor({
         <span className="text-[11px] text-fg-subtle">添加块</span>
         {(
           [
-            { kind: "system", label: "系统提示" },
+            { kind: "system", label: "空间系统提示" },
+            { kind: "character", label: "角色专属提示" },
             { kind: "history", label: "历史对话" },
             { kind: "custom", label: "自定义提示词" },
             { kind: "user", label: "用户回复" },

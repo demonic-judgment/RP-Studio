@@ -103,8 +103,8 @@ export function createProfile(
 
 const IMAGE_PARAM_DEFAULTS = {
   model: "gpt-image-1",
-  /** 比例固定 2:3 竖图（gpt-image-1 的 1024x1536），落库前还会再居中裁一次 */
-  size: "1024x1536",
+  /** 比例固定 1:1 方图（gpt-image-1 的 1024x1024），落库前还会再居中裁一次 */
+  size: "1024x1024",
   n: 1,
 };
 
@@ -126,9 +126,9 @@ function normalizeImageParams(raw: string | undefined, legacyModel?: string): st
   if (typeof value.model !== "string" || !value.model.trim()) {
     value.model = legacyModel?.trim() || IMAGE_PARAM_DEFAULTS.model;
   }
-  // 老档案里存的是 1:1 的旧默认值：比例已改成 2:3，静默升上去，
-  // 免得继续按正方形出图、落库时左右被裁掉一截
-  if (value.size === "1024x1024") value.size = IMAGE_PARAM_DEFAULTS.size;
+  // 老档案里存的是 2:3 的旧默认值：比例已改成 1:1，静默降下来，
+  // 免得继续按竖图出图、落库时上下被裁掉一截
+  if (value.size === "1024x1536") value.size = IMAGE_PARAM_DEFAULTS.size;
   return JSON.stringify(value, null, 2);
 }
 
@@ -403,7 +403,7 @@ export function normalizeBackground(raw: unknown): BackgroundConfig | undefined 
 
 /**
  * 解析当前实际生效的模型参数 —— 全局只有一份「当前档案」，
- * 角色卡不再做任何级别的模型绑定。
+ * 空间与角色都不做任何级别的模型绑定。
  */
 export function resolveModelConfig(settings: AppSettings): ModelConfig {
   const base = activeProfile(settings);

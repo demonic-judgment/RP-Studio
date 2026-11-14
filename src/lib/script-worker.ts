@@ -11,7 +11,7 @@ export interface WorkerScriptMessage {
     messages: { role: string; content: string }[];
     input: string;
     vars: Record<string, string>;
-    character: { name: string; systemPrompt: string; description: string };
+    character: { name: string; systemPrompt: string };
     history: string;
   };
 }

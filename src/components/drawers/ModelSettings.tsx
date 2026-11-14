@@ -232,7 +232,7 @@ export function ModelSettings() {
       </div>
 
       <div className="rounded-2xl bg-surface-2 p-inset-sm text-[11.5px] leading-relaxed text-fg-muted">
-        模型名填在参数的 model 里。用哪条档案在输入框左下角切换 —— 换档案不用改角色卡。
+        模型名填在参数的 model 里。用哪条档案在输入框左下角切换 —— 换档案不用改空间设置。
       </div>
 
       <Modal

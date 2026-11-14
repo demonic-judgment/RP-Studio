@@ -123,6 +123,121 @@ const MIGRATIONS: { version: number; sql: string }[] = [
          and jsonb_array_length(image_seeds) = 0;
     `,
   },
+  {
+    /**
+     * 角色卡 → 「空间 + 角色」双层：
+     * - 原来的 characters 表整体改名成 spaces（id 不变，会话 / 图片的老引用不用重算）；
+     * - 新建 characters 表当子级，一张老卡自动生成一个同名角色，继承开场白与当前底图；
+     * - sessions 拆成 space_id + character_id，老会话挂到那个唯一角色上；
+     * - 上下文编排补一个「角色专属提示」块（插在系统提示之后），专属提示词才有落点。
+     */
+    version: 5,
+    sql: `
+      alter table characters rename to spaces;
+
+      create table if not exists characters (
+        id uuid primary key,
+        space_id uuid not null references spaces(id) on delete cascade,
+        name text not null,
+        avatar text not null default '🎭',
+        tagline text not null default '',
+        description text not null default '',
+        greeting text not null default '',
+        system_prompt text not null default '',
+        active_seed text not null default '',
+        sort_order int not null default 0,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+
+      create index if not exists idx_characters_space on characters(space_id, sort_order, created_at);
+
+      insert into characters
+        (id, space_id, name, avatar, tagline, description, greeting, system_prompt, active_seed, sort_order, created_at, updated_at)
+      select
+        md5(random()::text || clock_timestamp()::text || s.id::text)::uuid,
+        s.id, s.name, s.avatar, s.tagline, s.description, s.greeting, '', coalesce(s.image_seed, ''), 0,
+        s.created_at, s.updated_at
+      from spaces s;
+
+      update spaces s
+         set context_blocks = sub.blocks
+        from (
+          select space.id,
+                 (select jsonb_agg(item.elem order by item.ord)
+                    from (
+                      select elem, ord
+                        from jsonb_array_elements(space.context_blocks) with ordinality as a(elem, ord)
+                      union all
+                      select jsonb_build_object(
+                               'id', 'blk-character', 'kind', 'character',
+                               'enabled', true, 'label', '角色专属提示'
+                             ),
+                             coalesce(
+                               (select min(b.ord)
+                                  from jsonb_array_elements(space.context_blocks) with ordinality as b(elem2, ord)
+                                 where elem2->>'kind' = 'system'),
+                               0
+                             ) + 0.5
+                    ) item
+                 ) as blocks
+            from spaces space
+        ) sub
+       where sub.id = s.id
+         and jsonb_array_length(s.context_blocks) > 0;
+
+      alter table sessions rename column character_id to space_id;
+      drop index if exists idx_sessions_character;
+      create index if not exists idx_sessions_space on sessions(space_id, updated_at desc);
+
+      alter table sessions add column if not exists character_id uuid references characters(id) on delete cascade;
+
+      update sessions se
+         set character_id = (
+           select c.id from characters c
+            where c.space_id = se.space_id
+            order by c.sort_order, c.created_at
+            limit 1
+         );
+
+      alter table sessions alter column character_id set not null;
+      create index if not exists idx_sessions_character on sessions(character_id, updated_at desc);
+
+      update images i
+         set character_id = (
+           select c.id from characters c
+            where c.space_id = i.character_id
+            order by c.sort_order, c.created_at
+            limit 1
+         )
+       where exists (select 1 from spaces sp where sp.id = i.character_id);
+    `,
+  },
+  {
+    /**
+     * v6：角色不再有「一句话简介」和「角色描述」。
+     * 这两栏原本只用于展示，人物设定统一写进 systemPrompt —— 会话首页
+     * 直接展示它，不必再维护一份会被判定为「过期」的摘要。
+     * 空间上的同名两列保留（那是空间自己的简介与描述）。
+     */
+    version: 6,
+    sql: `
+      alter table characters drop column if exists tagline;
+      alter table characters drop column if exists description;
+    `,
+  },
+  {
+    /**
+     * v7：空间也不再保留「一句话简介」和「空间说明」。
+     * 这两栏只用于左栏副标题和一屏介绍，实际设定都写在共享系统提示词里；
+     * 与其维护一份会和提示词不一致的摘要，不如只留名字。
+     */
+    version: 7,
+    sql: `
+      alter table spaces drop column if exists tagline;
+      alter table spaces drop column if exists description;
+    `,
+  },
 ];
 
 export async function initDb(): Promise<PGlite> {
@@ -161,6 +276,7 @@ export async function resetDatabase(): Promise<void> {
     drop table if exists messages cascade;
     drop table if exists sessions cascade;
     drop table if exists characters cascade;
+    drop table if exists spaces cascade;
     drop table if exists settings cascade;
     drop table if exists schema_meta cascade;
   `);

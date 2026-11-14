@@ -19,8 +19,8 @@ const THREAD_MAX = 760;
 /** 桌面端左侧边栏宽度，和 Sidebar 的 w-[304px] 保持一致 */
 const SIDEBAR_WIDTH = 304;
 const MIN_WIDTH = 180;
-/** 画面是 2:3 竖图：高度恒等于宽度 × 1.5，缩放只改一个数 */
-const ASPECT = 1.5;
+/** 画面是 1:1 方图：高度恒等于宽度，缩放只改一个数 */
+const ASPECT = 1;
 
 /**
  * 悬浮画面：默认宽度取聊天列的一半，可拖动、可拖右下角缩放。
@@ -31,7 +31,7 @@ function clampBox(
   viewportWidth = window.innerWidth,
   viewportHeight = window.innerHeight,
 ): ImageWidgetGeometry {
-  // 2:3：高度跟着宽度走，缩放只改宽度；两个方向都要留出 24px 边距
+  // 1:1：高度跟着宽度走，缩放只改宽度；两个方向都要留出 24px 边距
   const maxWidth = Math.max(
     MIN_WIDTH,
     Math.min(viewportWidth - 24, Math.round((viewportHeight - 24) / ASPECT)),
@@ -77,6 +77,7 @@ export function ImageStage() {
   const enabled = useStore((s) => s.settings.imageEnabled);
   const savedBox = useStore((s) => s.settings.imageWidget);
   const characters = useStore((s) => s.characters);
+  const spaces = useStore((s) => s.spaces);
   const activeCharacterId = useStore((s) => s.activeCharacterId);
   const messages = useStore((s) => s.messages);
   const images = useStore((s) => s.images);
@@ -162,6 +163,7 @@ export function ImageStage() {
   };
 
   const character = characters.find((c) => c.id === activeCharacterId) ?? null;
+  const space = spaces.find((s) => s.id === character?.spaceId) ?? null;
   const groups = useMemo(() => groupImages(images), [images]);
   const group = useMemo(() => {
     if (!groups.length) return null;
@@ -173,8 +175,9 @@ export function ImageStage() {
     return group.images.find((img) => img.id === imageView?.imageId) ?? group.images[group.images.length - 1];
   }, [group, imageView]);
   const variantIndex = current && group ? group.images.findIndex((img) => img.id === current.id) : -1;
-  // 还没有生成图时，先拿角色底图当预览
-  const seedUrl = character?.imageSeeds?.find((src) => Boolean(src)) ?? "";
+  // 还没有生成图时，先拿角色选中的那张底图当预览（底图库在空间里）
+  const seedUrl =
+    character?.activeSeed || space?.imageSeeds?.find((src) => Boolean(src)) || "";
   const displayUrl = current?.url ?? seedUrl;
   const isSeedOnly = !current && Boolean(seedUrl);
   // 有图可以照着再画一版；没图但有生图提示词时也允许手动起一张
@@ -236,7 +239,7 @@ export function ImageStage() {
             </span>
             <p className="px-4 text-[12px] font-medium text-fg-muted">还没有画面</p>
             <p className="px-5 text-[11px] leading-relaxed text-fg-subtle">
-              先在角色卡里传一张正面全身照的底图，再开始对话 —— 画面会跟着每轮回复变化。
+              先在空间设置里传一张正面全身照的底图，再到角色里选一张 —— 画面会跟着每轮回复变化。
             </p>
           </div>
         )}
@@ -427,7 +430,7 @@ function ImageGallery({
                         onClick={() => onPick(image.messageId, image.id)}
                         aria-label="查看这张画面"
                         className={cn(
-                          "block aspect-[2/3] w-full overflow-hidden rounded-xl bg-surface-2 transition-all",
+                          "block aspect-square w-full overflow-hidden rounded-xl bg-surface-2 transition-all",
                           active
                             ? "ring-2 ring-primary ring-offset-2 ring-offset-surface"
                             : "hover:-translate-y-0.5 hover:shadow-card",

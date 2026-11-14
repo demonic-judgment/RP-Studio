@@ -18,7 +18,7 @@ export function Sidebar() {
 
   return (
     <aside
-      aria-label="角色与会话"
+      aria-label="空间、角色与会话"
       className="relative z-10 hidden h-full w-[304px] shrink-0 flex-col border-r border-line bg-surface-2/60 backdrop-blur-xl backdrop-saturate-150 lg:flex"
     >
       <LeftPanel />

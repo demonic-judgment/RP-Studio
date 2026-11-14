@@ -92,8 +92,8 @@ export function ImageSettings() {
             图生图
           </p>
           <p className="mt-0.5 text-[11.5px] leading-relaxed text-fg-subtle">
-            建议先给角色卡传好一张正面全身照的底图 —— 双手双脚完整入画、脑袋正对前方，画面才稳。关掉后不生成图片，也不显示悬浮画面。
-            想换画风或构图，改下面的编排；想改「让角色返回 JSON」的约定，去角色卡的「提示词编排」。
+            建议先在空间设置里传好底图、再到角色里选一张 —— 双手双脚完整入画、脑袋正对前方，画面才稳。关掉后不生成图片，也不显示悬浮画面。
+            想换画风或构图，改下面的编排；想改「让角色返回 JSON」的约定，去空间设置的「上下文」。
           </p>
         </div>
         <Switch
@@ -251,7 +251,7 @@ export function ImageSettings() {
       </div>
 
       <p className="text-[11.5px] leading-relaxed text-fg-subtle">
-        画面固定按 2:3 竖图出。没有底图时图生图会直接报错 —— 先在角色卡里上传一张正面全身照的底图。
+        画面固定按 1:1 方图出。没有底图时图生图会直接报错 —— 先在空间设置里上传底图，再到角色里选一张。
       </p>
 
       <Modal
@@ -340,7 +340,7 @@ export function ImageSettings() {
             <Field
               label="参数（JSON）"
               error={paramsError}
-              hint="model 必填；size 建议 1024x1536，其余按服务商文档加"
+              hint="model 必填；size 建议 1024x1024，其余按服务商文档加"
               action={
                 <button
                   type="button"

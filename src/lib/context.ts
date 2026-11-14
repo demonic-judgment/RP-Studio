@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ContextBlock,
   Message,
+  Space,
 } from "./types";
 import { clamp, estimateTokens, uid } from "./utils";
 import { DEFAULT_IMAGE_DIRECTIVE } from "./image-presets";
@@ -12,19 +13,12 @@ export function newBlockId() {
   return uid("blk");
 }
 
-export function defaultContextBlocks(systemPromptHint = ""): ContextBlock[] {
+export function defaultContextBlocks(): ContextBlock[] {
   return [
-    { id: newBlockId(), kind: "system", enabled: true, label: "角色系统提示" },
+    { id: newBlockId(), kind: "system", enabled: true, label: "空间系统提示" },
+    { id: newBlockId(), kind: "character", enabled: true, label: "角色专属提示" },
     { id: newBlockId(), kind: "image", enabled: true, content: DEFAULT_IMAGE_DIRECTIVE, label: "生图 JSON 预设" },
     { id: newBlockId(), kind: "history", enabled: true, from: -12, to: -1, label: "历史对话" },
-    {
-      id: newBlockId(),
-      kind: "custom",
-      enabled: !!systemPromptHint,
-      role: "system",
-      content: systemPromptHint,
-      label: "自定义提示词",
-    },
     { id: newBlockId(), kind: "user", enabled: true, label: "用户回复" },
   ];
 }
@@ -101,12 +95,30 @@ export function defaultImageDirectiveBlock(): ContextBlock {
   };
 }
 
-/** 保证角色有一份生图 JSON 预设：插在系统提示后面，位置最稳 */
+/** 保证空间有一份生图 JSON 预设：插在系统提示后面，位置最稳 */
 export function ensureImageDirectiveBlock(blocks: ContextBlock[]): ContextBlock[] {
   if (blocks.some((block) => block.kind === "image")) return blocks;
   const next = [...blocks];
   const systemAt = next.findIndex((block) => block.kind === "system");
   next.splice(systemAt + 1, 0, defaultImageDirectiveBlock());
+  return next;
+}
+
+/**
+ * 保证空间编排里能放「角色专属提示」。
+ * 编排是空间级的、所有角色共用一份；没有这个块，角色的专属提示词就没有落点。
+ * 老数据（迁移前的上下文数组）在读取时补一条，插在系统提示之后。
+ */
+export function ensureCharacterBlock(blocks: ContextBlock[]): ContextBlock[] {
+  if (blocks.some((block) => block.kind === "character")) return blocks;
+  const next = [...blocks];
+  const at = next.findIndex((block) => block.kind === "system");
+  next.splice(at + 1, 0, {
+    id: newBlockId(),
+    kind: "character",
+    enabled: true,
+    label: "角色专属提示",
+  });
   return next;
 }
 
@@ -156,17 +168,21 @@ export function describeHistoryBlock(from: number, to: number): string {
 /**
  * 上下文装配：按块顺序产出 messages。
  * 连续同 role 的消息会被合并成一条，兼容要求严格交替的接口。
+ *
+ * 块来自 `space`（空间是编排的唯一持有者）；`character` 只贡献自己的名字与专属提示词。
  */
 export function assembleContext(params: {
-  character: Pick<Character, "name" | "systemPrompt" | "contextBlocks">;
+  space: Pick<Space, "systemPrompt" | "contextBlocks">;
+  character: Pick<Character, "name" | "systemPrompt">;
   history: Message[] | ChatMessage[];
   input: string;
   userName?: string;
   /** 图生图开关：关着时「生图 JSON 预设」不进入上下文 */
   imageEnabled?: boolean;
 }): AssembledContext {
-  const { character, history, input, userName = "你", imageEnabled = false } = params;
-  const blocks = character.contextBlocks ?? [];
+  const { space, character, history, input, userName = "你", imageEnabled = false } = params;
+  const blocks = space.contextBlocks ?? [];
+  const charVars = { char: character.name, user: userName };
 
   const historyMessages: ChatMessage[] = history.map((m) => ({
     role: m.role,
@@ -177,35 +193,69 @@ export function assembleContext(params: {
   const trace: AssembledContext["trace"] = [];
   let hasUserBlock = false;
 
-  // 老角色卡里可能没有这个块：开关打开时也补一条，保证「返回 JSON」的约定一定在上下文里。
-  // 位置放在角色系统提示之后（没有系统块就放在最前），别抢在设定前面。
+  // 老编排里可能没有这两块：开关 / 有内容时也补一条，保证提示词一定在上下文里。
+  // 位置放在空间系统提示之后（没有系统块就放在最前），别抢在设定前面。
+  const needsCharacterFallback =
+    !blocks.some((block) => block.kind === "character") && Boolean(character.systemPrompt.trim());
+  let characterFallbackDone = !needsCharacterFallback;
+  const pushCharacterFallback = () => {
+    if (characterFallbackDone) return;
+    characterFallbackDone = true;
+    const content = interpolate(character.systemPrompt, charVars).trim();
+    if (!content) return;
+    messages.push({ role: "system", content });
+    trace.push({
+      blockId: "character-fallback",
+      kind: "character",
+      count: 1,
+      note: `system · ${content.length} 字`,
+    });
+  };
+
   const needsImageFallback = imageEnabled && !blocks.some((block) => block.kind === "image");
   let imageFallbackDone = !needsImageFallback;
   const pushImageFallback = () => {
     if (imageFallbackDone) return;
     imageFallbackDone = true;
-    const content = interpolate(DEFAULT_IMAGE_DIRECTIVE, { char: character.name, user: userName });
+    const content = interpolate(DEFAULT_IMAGE_DIRECTIVE, charVars);
     messages.push({ role: "system", content });
     trace.push({ blockId: "image-preset", kind: "image", count: 1, note: `system · ${content.length} 字` });
   };
 
-  // 连系统块都没有：预设直接打头，别落到历史后面去
-  if (!blocks.some((block) => block.kind === "system")) pushImageFallback();
+  // 连系统块都没有：两个兜底直接打头，别落到历史后面去
+  if (!blocks.some((block) => block.kind === "system")) {
+    pushCharacterFallback();
+    pushImageFallback();
+  }
 
   for (const block of blocks) {
     if (!block.enabled) {
       trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "已禁用" });
-      if (block.kind === "system") pushImageFallback();
+      if (block.kind === "system") {
+        pushCharacterFallback();
+        pushImageFallback();
+      }
       continue;
     }
     switch (block.kind) {
       case "system": {
-        const text = character.systemPrompt?.trim();
+        const text = space.systemPrompt?.trim();
         if (!text) {
-          trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "角色未填写系统提示" });
+          trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "空间未填写共享提示" });
           break;
         }
-        const content = interpolate(text, { char: character.name, user: userName });
+        const content = interpolate(text, charVars);
+        messages.push({ role: "system", content });
+        trace.push({ blockId: block.id, kind: block.kind, count: 1, note: `system · ${text.length} 字` });
+        break;
+      }
+      case "character": {
+        const text = character.systemPrompt?.trim();
+        if (!text) {
+          trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "当前角色未填写专属提示" });
+          break;
+        }
+        const content = interpolate(text, charVars);
         messages.push({ role: "system", content });
         trace.push({ blockId: block.id, kind: block.kind, count: 1, note: `system · ${text.length} 字` });
         break;
@@ -215,7 +265,7 @@ export function assembleContext(params: {
           trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "图生图未开启" });
           break;
         }
-        const content = interpolate(block.content, { char: character.name, user: userName }).trim();
+        const content = interpolate(block.content, charVars).trim();
         if (!content) {
           trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "内容为空" });
           break;
@@ -236,11 +286,7 @@ export function assembleContext(params: {
         break;
       }
       case "custom": {
-        const content = interpolate(block.content, {
-          char: character.name,
-          user: userName,
-          input,
-        }).trim();
+        const content = interpolate(block.content, { ...charVars, input }).trim();
         if (!content) {
           trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "内容为空" });
           break;
@@ -261,7 +307,10 @@ export function assembleContext(params: {
         break;
       }
     }
-    if (block.kind === "system") pushImageFallback();
+    if (block.kind === "system") {
+      pushCharacterFallback();
+      pushImageFallback();
+    }
   }
 
   if (!hasUserBlock && input.trim()) {
@@ -291,14 +340,28 @@ function mergeAdjacent(messages: ChatMessage[]): ChatMessage[] {
   return out;
 }
 
-export function blockKindMeta(kind: ContextBlock["kind"]): {
+const UNKNOWN_BLOCK_META = {
+  label: "未知块",
+  hint: "来自更早的版本，可以删掉",
+  tone: "bg-surface-3 text-fg-muted",
+};
+
+/**
+ * 块类型 → 展示文案。
+ * 入参放宽到 string：数据库里的 jsonb 是历史数据，块类型可能是这一版已经不认的值
+ * （或者干脆缺字段）。以前这里 switch 没有 default，取到 `.tone` 就整页崩，
+ * 所以现在任何不认识的 kind 都落到「未知块」，界面不至于白屏。
+ */
+export function blockKindMeta(kind: ContextBlock["kind"] | string | undefined): {
   label: string;
   hint: string;
   tone: string;
 } {
   switch (kind) {
     case "system":
-      return { label: "角色系统提示", hint: "来自角色卡设定", tone: "bg-primary-container text-on-primary-container" };
+      return { label: "空间系统提示", hint: "来自空间设置", tone: "bg-primary-container text-on-primary-container" };
+    case "character":
+      return { label: "角色专属提示", hint: "来自当前角色", tone: "bg-primary-container text-on-primary-container" };
     case "history":
       return { label: "历史对话", hint: "下标可填负数", tone: "bg-surface-3 text-fg-muted" };
     case "custom":
@@ -307,5 +370,46 @@ export function blockKindMeta(kind: ContextBlock["kind"]): {
       return { label: "生图 JSON 预设", hint: "顶栏开关控制", tone: "bg-secondary-container text-on-primary-container" };
     case "user":
       return { label: "用户回复", hint: "当前输入", tone: "bg-surface-2 text-fg" };
+    default:
+      return UNKNOWN_BLOCK_META;
   }
+}
+
+/** 已知的块类型；读数时用它筛掉脏数据，也用来判断某个块还能不能编辑 */
+export const CONTEXT_BLOCK_KINDS = ["system", "character", "history", "custom", "image", "user"] as const;
+
+export function isKnownBlockKind(kind: unknown): kind is ContextBlock["kind"] {
+  return typeof kind === "string" && (CONTEXT_BLOCK_KINDS as readonly string[]).includes(kind);
+}
+
+/**
+ * 把库里的 jsonb 编排规整成能渲染的块数组。
+ *
+ * 有一段开发期的 `jsonb_agg` 写法把整行当元素聚合了，库里留下了
+ * `{ elem: {…真块…}, ord: 1 }` 这种被套了一层的块：它没有 `kind`，
+ * 点到「上下文」页就在 `blockKindMeta(...).tone` 上白屏。这里顺手解包，
+ * 并给缺字段的块补默认值。
+ *
+ * 不认识的 kind 原样保留（只补 id / enabled）——让用户自己看见再删，
+ * 比读的时候悄悄吞掉安全。
+ */
+export function normalizeContextBlocks(value: unknown): ContextBlock[] {
+  if (!Array.isArray(value)) return [];
+  const out: ContextBlock[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const wrapped = row.elem && typeof row.elem === "object" && !("kind" in row);
+    const block = wrapped ? (row.elem as Record<string, unknown>) : row;
+    if (wrapped) console.warn("[context] 解包了一个被套层的编排块（早期聚合写法留下的）", row);
+    // 连 kind 都没有的块留着也渲染不出来，直接跳过
+    if (typeof block.kind !== "string" || !block.kind) continue;
+    out.push({
+      ...(block as object),
+      id: typeof block.id === "string" && block.id ? block.id : newBlockId(),
+      kind: block.kind,
+      enabled: block.enabled !== false,
+    } as ContextBlock);
+  }
+  return out;
 }

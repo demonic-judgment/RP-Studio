@@ -15,9 +15,17 @@ export interface ContextBlockBase {
   label?: string;
 }
 
-/** 角色系统提示词（来自角色卡的 systemPrompt） */
+/** 空间共享的系统提示词（来自空间设置的 systemPrompt） */
 export interface SystemBlock extends ContextBlockBase {
   kind: "system";
+}
+
+/**
+ * 当前角色的专属系统提示词（来自角色的 systemPrompt）。
+ * 编排是空间的，所有角色共用一份；每个角色只替换这一块的文字。
+ */
+export interface CharacterPromptBlock extends ContextBlockBase {
+  kind: "character";
 }
 
 /** 历史对话切片，from/to 支持负数下标：[-5,-1] = 倒数第 5 条到倒数第 1 条 */
@@ -41,17 +49,23 @@ export interface UserBlock extends ContextBlockBase {
 
 /**
  * 图生图 JSON 预设：图生图开关打开时进入上下文的一条 system 指令，
- * 要求聊天模型在回复末尾附上「生图提示词」JSON。内容可在角色卡里改。
+ * 要求聊天模型在回复末尾附上「生图提示词」JSON。内容可在空间设置里改。
  */
 export interface ImageDirectiveBlock extends ContextBlockBase {
   kind: "image";
   content: string;
 }
 
-export type ContextBlock = SystemBlock | HistoryBlock | CustomBlock | UserBlock | ImageDirectiveBlock;
+export type ContextBlock =
+  | SystemBlock
+  | CharacterPromptBlock
+  | HistoryBlock
+  | CustomBlock
+  | UserBlock
+  | ImageDirectiveBlock;
 export type ContextBlockKind = ContextBlock["kind"];
 
-/* -------------------------------- 角色卡 -------------------------------- */
+/* -------------------------------- 空间 --------------------------------- */
 
 export interface QuickPhrase {
   id: string;
@@ -78,21 +92,21 @@ export interface ModelProfile extends ModelConfig {
   name: string;
 }
 
-export interface Character {
+/**
+ * 一个空间：共享的舞台。
+ * 提示词工程、上下文编排、工作流、脚本、底图库都挂在它身上 —— 空间里的角色共用这一套。
+ */
+export interface Space {
   id: string;
   name: string;
   avatar: string;
-  tagline: string;
-  description: string;
-  /** 初始消息：新建会话时作为角色的第一条消息写入 */
-  greeting: string;
+  /** 空间共享的系统提示词，由编排里的「空间系统提示」块注入 */
+  systemPrompt: string;
   /**
-   * 角色底图（data URL 或外链）：一张正面全身照的图。图生图每轮拿它当参考重新画，
-   * 不叠加上一张的结果 —— 画面变化只来自提示词，角色长相不会逐轮漂移。
-   * 仍是数组是为了兼容老数据：实际只用第一张非空的。
+   * 底图库：空间里可以导入多张，每个角色挑其中一张当自己的参考图。
+   * 存 data URL 或外链。
    */
   imageSeeds: string[];
-  systemPrompt: string;
   contextBlocks: ContextBlock[];
   quickPhrases: QuickPhrase[];
   workflow: Workflow;
@@ -101,16 +115,47 @@ export interface Character {
   updatedAt: string;
 }
 
-export type CharacterDraft = Omit<Character, "id" | "createdAt" | "updatedAt" | "imageSeeds"> & {
+export type SpaceDraft = Partial<Omit<Space, "id" | "createdAt" | "updatedAt">> & { id?: string };
+
+/**
+ * 空间里的一个角色：真正跟你对话的那一位。
+ * 只放「这个人是谁」——名字、外貌、开场白、设定提示词，以及用空间哪张底图。
+ */
+export interface Character {
+  id: string;
+  spaceId: string;
+  name: string;
+  avatar: string;
+  /** 初始消息：新建会话时作为角色的第一条消息写入 */
+  greeting: string;
+  /**
+   * 角色设定提示词：由编排里的「角色专属提示」块注入，
+   * 同时是会话首页展示给用户看的那段人物设定。
+   */
+  systemPrompt: string;
+  /**
+   * 从空间底图库里选中的那张（data URL 或外链）。图生图每轮拿它当参考重新画，
+   * 不叠加上一张的结果；为空时退回空间底图库的第一张。
+   */
+  activeSeed: string;
+  /** 同空间内的排序，越小越靠前 */
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type CharacterDraft = Partial<Omit<Character, "id" | "createdAt" | "updatedAt">> & {
   id?: string;
-  /** 新角色可以不配底图，缺省存空数组 */
-  imageSeeds?: string[];
+  spaceId?: string;
 };
 
 /* -------------------------------- 会话 --------------------------------- */
 
 export interface Session {
   id: string;
+  /** 会话属于哪个空间：删空间时整层跟着走 */
+  spaceId: string;
+  /** 会话挂在哪个角色上：每个角色有自己独立的一套会话 */
   characterId: string;
   title: string;
   pinned: boolean;
@@ -138,7 +183,7 @@ export interface MessageMeta {
   durationMs?: number;
   edited?: boolean;
   viaWorkflow?: boolean;
-  /** 由角色卡「初始消息」自动写入的开场白 */
+  /** 由角色「初始消息」自动写入的开场白 */
   greeting?: boolean;
   /**
    * 回答的历史版本（含当前这一版）。重新生成时沿用原消息的 id，
@@ -277,13 +322,14 @@ export interface ImageWidgetGeometry {
 export interface MessageImage {
   id: string;
   sessionId: string;
+  /** 生成时正在对话的那个角色 */
   characterId: string;
   messageId: string;
   /** 实际送进模型的完整提示词（提示词块拼装后的结果） */
   prompt: string;
   /** 从回复 JSON 里取到的原始提示词，重新生图时复用它 */
   rawPrompt: string;
-  /** 这次用的底图；固定底图模式下通常为 null（表示用的是角色 `image_seeds` 里那张底图） */
+  /** 这次用的底图；固定底图模式下通常为 null（表示用的是角色选中的那张） */
   baseImageId: string | null;
   url: string;
   model: string;
@@ -304,7 +350,7 @@ export interface ImageRunState {
 /* -------------------------------- 设置 --------------------------------- */
 
 export type ThemeMode = "light" | "dark" | "system";
-export type DrawerId = "left" | "settings" | "character" | null;
+export type DrawerId = "left" | "settings" | "space" | "character" | null;
 
 /**
  * 主页最底层背景图。`url` 既可能是外链，也可能是本地上传后压成的 data URL
@@ -312,9 +358,9 @@ export type DrawerId = "left" | "settings" | "character" | null;
  */
 export interface BackgroundConfig {
   url: string;
-  /** 图片自身不透明度，0.1–1 */
+  /** 图片自身不透明度，0.1-1 */
   opacity: number;
-  /** 高斯模糊半径（px），0–24 */
+  /** 高斯模糊半径（px），0-24 */
   blur: number;
 }
 

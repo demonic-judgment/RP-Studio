@@ -12,12 +12,12 @@ const MAX_CHARS = 2_600_000;
 /** 动图 / 矢量图原样保留时的体积上限 */
 const RAW_LIMIT = 6 * 1024 * 1024;
 /**
- * 生成结果与底图统一按 2:3 竖图存：800x1200。
- * 画布宽 380（聊天正文列的一半）在 2x 屏上要 760 像素，800 够用；
+ * 生成结果统一按 1:1 方图存：1024x1024。
+ * 画布宽 380（聊天正文列的一半）在 2x 屏上要 760 像素，1024 够用且有富余；
  * 再大只是让每轮「图 → 底图 → 图」的 IndexedDB 读写更沉。
  */
-const IMAGE_WIDTH = 800;
-const IMAGE_HEIGHT = 1200;
+const IMAGE_WIDTH = 1024;
+const IMAGE_HEIGHT = 1024;
 /** 压完的体积上限，超了再降一档（WebP 字符数，约 900KB 原图） */
 const IMAGE_MAX_CHARS = 900_000;
 /** 角色底图长边：要看清服装与五官细节，比生成图留得大一点 */
@@ -53,11 +53,10 @@ export async function prepareBackgroundImage(file: File): Promise<string> {
 }
 
 /**
- * 绘图模型返回的图 / 用户选的初始底图：按 2:3 居中裁切后压成 800x1200 的 WebP。
+ * 绘图模型返回的图：按 1:1 居中裁切后压成 1024x1024 的 WebP。
  *
- * 各家模型实际吐出来的比例不一定听话（1024x1024、1536x1024 都见过），
- * 而画面框固定 2:3 —— 不在这里统一裁，图放进框里就会被压扁或留边；
- * 底图也是同一套规则，保证「底图 → 生成图」比例一致。
+ * 各家模型实际吐出来的比例不一定听话（1024x1536、1536x1024 都见过），
+ * 而画面框固定 1:1 —— 不在这里统一裁，图放进框里就会被压扁或留边。
  * 生成图要落库、还要能当备份导出，所以裁完还要压：超体积再降一档画质和尺寸。
  */
 export async function prepareGeneratedImage(blob: Blob): Promise<string> {
@@ -70,7 +69,7 @@ export async function prepareGeneratedImage(blob: Blob): Promise<string> {
 /**
  * 角色底图：**不裁切**，只按长边等比缩小 + 转 WebP。
  *
- * 参考图不是拿来填画面框的，是给模型看「这个人长什么样」——按 2:3 裁掉两侧
+ * 参考图不是拿来填画面框的，是给模型看「这个人长什么样」——按画面比例裁掉两侧
  * 可能正好裁掉发型、肩线或手里的道具，得不偿失。等比缩放后模型能拿到完整信息，
  * 画面比例本来就在 prompt 与 size 参数里约束。
  */
@@ -149,8 +148,8 @@ function encode(image: Decoded, maxEdge: number, quality: number): string {
 
 /**
  * 按目标比例 cover 裁切后输出固定尺寸：短边铺满、长边居中截掉，
- * 不拉伸、不留黑边。1:1 的输出裁成 2:3 时左右各切掉一截，
- * 2:3 的输出则原样缩放 —— 两种都能落到同一个框里。
+ * 不拉伸、不留黑边。竖图（1024x1536 这类）裁成 1:1 时上下各切掉一截，
+ * 方图则原样缩放 —— 两种都能落到同一个框里。
  */
 function encodeCropped(image: Decoded, width: number, height: number, quality: number): string {
   const ctx = canvasOf(width, height);

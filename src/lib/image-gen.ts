@@ -121,7 +121,7 @@ function readErrorMessage(text: string, status: number): string {
 
 /**
  * 底图是固定的一张：解出来的 Blob 缓存住，重画 / 连续几轮都不用再解一次。
- * 用 Map 而不是单个变量：切角色卡时换图，按 URL 命中。
+ * 用 Map 而不是单个变量：切角色时换图，按 URL 命中。
  */
 const blobCache = new Map<string, Blob>();
 const BLOB_CACHE_LIMIT = 6;
@@ -184,7 +184,7 @@ export async function requestImage({
   if (config.mode === "edit") {
     const source = (baseImages ?? []).find((src) => Boolean(src && src.trim())) ?? "";
     if (!source) {
-      throw new Error("图生图需要底图：在角色卡里上传一张正面全身照的底图，或把生图档案切成文生图");
+      throw new Error("图生图需要底图：在空间设置里上传一张正面全身照的底图，或把生图档案切成文生图");
     }
     const blob = await sourceToBlob(source);
     const headers = config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined;
