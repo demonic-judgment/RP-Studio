@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
-import { MessageSquarePlus, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronRight, MessageSquarePlus, Pencil, Pin, Plus, Search, Trash2, X } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useStore } from "../../lib/store";
 import type { Character } from "../../lib/types";
 import { Button, IconButton } from "../ui/Button";
@@ -36,6 +37,25 @@ export function LeftPanel({ onClose }: { onClose?: () => void }) {
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const reduceMotion = useReducedMotion();
+  /** 展开着的空间：默认摊开当前空间，其余折叠；点了才展开，允许多个同时开着 */
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => new Set(activeSpaceId ? [activeSpaceId] : []),
+  );
+
+  // 从别处换了空间（首屏恢复、分支会话、抽屉里切角色）也要把它摊开
+  useEffect(() => {
+    if (!activeSpaceId) return;
+    setExpandedIds((prev) => (prev.has(activeSpaceId) ? prev : new Set(prev).add(activeSpaceId)));
+  }, [activeSpaceId]);
+
+  const toggleSpace = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const q = query.trim().toLowerCase();
 
@@ -127,17 +147,40 @@ export function LeftPanel({ onClose }: { onClose?: () => void }) {
                     c.name.toLowerCase().includes(q) || c.systemPrompt.toLowerCase().includes(q),
                 )
               : kids;
-            // 平时只展开当前空间；搜索时只摊开真的命中了角色的空间
-            const expanded = q ? shownKids.length > 0 : active;
+            // 搜索时只摊开真的命中了角色的空间；平时看 expandedIds
+            const open = q ? shownKids.length > 0 : expandedIds.has(space.id);
             return (
               <div key={space.id}>
                 <div
                   className={cn(
-                    "group flex cursor-pointer items-center gap-2.5 rounded-xl px-inset-lg py-2.5 transition-colors",
+                    "group flex cursor-pointer items-center gap-2.5 rounded-xl py-2.5 pl-2 pr-inset-lg transition-colors",
                     active ? "bg-primary-container" : "hover:bg-surface-2",
                   )}
-                  onClick={() => void selectSpace(space.id)}
+                  onClick={() => {
+                    // 点当前空间 = 折叠 / 展开；点别的空间 = 切过去（展开交给 activeSpaceId 的副作用）
+                    if (space.id === activeSpaceId) toggleSpace(space.id);
+                    else void selectSpace(space.id);
+                  }}
                 >
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={open ? `收起「${space.name}」的角色` : `展开「${space.name}」的角色`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSpace(space.id);
+                    }}
+                    className={cn(
+                      "flex h-4 w-4 shrink-0 items-center justify-center rounded text-fg-subtle transition-colors hover:text-fg",
+                      // 搜索时强制展开，箭头不给点，免得点了没反应
+                      q && "invisible",
+                    )}
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={cn("transition-transform duration-200", open && "rotate-90")}
+                    />
+                  </button>
                   <span
                     className={cn(
                       "flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] text-[17px]",
@@ -194,71 +237,82 @@ export function LeftPanel({ onClose }: { onClose?: () => void }) {
                   </IconButton>
                 </div>
 
-                {expanded && (
-                  <div className="ml-[26px] mt-0.5 space-y-0.5 border-l border-line pl-1.5">
-                    {shownKids.map((character) => {
-                      const charActive = character.id === activeCharacterId;
-                      return (
-                        <div
-                          key={character.id}
-                          className={cn(
-                            "group flex items-center gap-0.5 rounded-lg pr-0.5 transition-colors",
-                            charActive ? "bg-surface-2" : "hover:bg-surface-2",
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void selectCharacter(character.id)}
-                            title={character.name}
-                            className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-1.5"
-                          >
-                            <CharacterAvatar
-                              seed={characterSeed(character, space)}
-                              emoji={character.avatar}
-                              className="w-[15px] bg-surface"
-                              emojiSize={10}
-                            />
-                            <span
+                <AnimatePresence initial={false}>
+                  {open && (
+                    <motion.div
+                      key="kids"
+                      initial={reduceMotion ? false : { height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={reduceMotion ? { opacity: 0 } : { height: 0, opacity: 0 }}
+                      transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                      className="overflow-hidden"
+                    >
+                      <div className="ml-[46px] space-y-0.5 border-l border-line py-0.5 pl-1.5">
+                        {shownKids.map((character) => {
+                          const charActive = character.id === activeCharacterId;
+                          return (
+                            <div
+                              key={character.id}
                               className={cn(
-                                "truncate text-[12.5px]",
-                                charActive ? "font-medium text-fg" : "text-fg-muted",
+                                "group flex items-center gap-0.5 rounded-lg pr-0.5 transition-colors",
+                                charActive ? "bg-surface-2" : "hover:bg-surface-2",
                               )}
                             >
-                              {character.name}
-                            </span>
-                          </button>
+                              <button
+                                type="button"
+                                onClick={() => void selectCharacter(character.id)}
+                                title={character.name}
+                                className="flex min-w-0 flex-1 items-center gap-1.5 py-1 pl-1.5"
+                              >
+                                <CharacterAvatar
+                                  seed={characterSeed(character, space)}
+                                  emoji={character.avatar}
+                                  className="w-[15px] bg-surface"
+                                  emojiSize={10}
+                                />
+                                <span
+                                  className={cn(
+                                    "truncate text-[12.5px]",
+                                    charActive ? "font-medium text-fg" : "text-fg-muted",
+                                  )}
+                                >
+                                  {character.name}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`编辑角色「${character.name}」`}
+                                title={`编辑「${character.name}」`}
+                                onClick={async () => {
+                                  // 抽屉读的是 activeCharacterId：编辑别的角色要先切过去再开，
+                                  // 否则抽屉会先拿上一个角色的草稿渲染一帧。
+                                  if (!charActive) await selectCharacter(character.id);
+                                  openDrawer("character");
+                                }}
+                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] text-fg-subtle opacity-60 transition hover:bg-black/6 hover:text-fg hover:opacity-100 dark:hover:bg-white/12"
+                              >
+                                <Pencil size={10} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {shownKids.length === 0 && (
+                          <p className="px-2 py-1 text-[11.5px] text-fg-subtle">还没有角色</p>
+                        )}
+                        {!q && active && (
                           <button
                             type="button"
-                            aria-label={`编辑角色「${character.name}」`}
-                            title={`编辑「${character.name}」`}
-                            onClick={async () => {
-                              // 抽屉读的是 activeCharacterId：编辑别的角色要先切过去再开，
-                              // 否则抽屉会先拿上一个角色的草稿渲染一帧。
-                              if (!charActive) await selectCharacter(character.id);
-                              openDrawer("character");
-                            }}
-                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] text-fg-subtle opacity-60 transition hover:bg-black/6 hover:text-fg hover:opacity-100 dark:hover:bg-white/12"
+                            onClick={() => void createCharacter()}
+                            className="flex w-full items-center gap-1.5 rounded-lg py-1 pl-1.5 text-[11.5px] text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg"
                           >
-                            <Pencil size={10} />
+                            <Plus size={11} />
+                            新建角色
                           </button>
-                        </div>
-                      );
-                    })}
-                    {shownKids.length === 0 && (
-                      <p className="px-2 py-1 text-[11.5px] text-fg-subtle">还没有角色</p>
-                    )}
-                    {!q && active && (
-                      <button
-                        type="button"
-                        onClick={() => void createCharacter()}
-                        className="flex w-full items-center gap-1.5 rounded-lg py-1 pl-1.5 text-[11.5px] text-fg-subtle transition-colors hover:bg-surface-2 hover:text-fg"
-                      >
-                        <Plus size={11} />
-                        新建角色
-                      </button>
-                    )}
-                  </div>
-                )}
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}
