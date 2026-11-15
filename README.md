@@ -103,7 +103,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 上下文装配 | `src/lib/context.ts` | 有序块 → messages、负数下标切片、变量插值、trace、token 估算 | 任意相邻同 `role` 合并成一条（`\n\n` 分隔）；无 `user` 块时自动在末尾补输入；`interpolate` 支持 `{{char}} {{user}} {{input}} {{time}} {{history}}`，`time` 缺省取本地时间 |
 | DFS 执行器 | `src/lib/workflow.ts` | 节点构造、默认图、校验、执行 | 每个分支复制消息栈互不污染；`depth > 32` 判环；`llm` 节点参数与全局参数浅合并、节点优先；`{{nodeId.output}}` 引用前序节点输出；无输出节点时退化为 `Object.values(outputs).pop()` |
 | Web Worker 沙箱 | `src/lib/script.ts` + `src/lib/script-worker.ts` | `AsyncFunction` 执行用户 JS、超时熔断、日志回传 | Vite 的 `?worker` 导入；**每次执行新建 Worker 并 `terminate()`**；主线程计时 `Math.max(200, timeoutMs)`；`settled` 防重复 resolve；返回值归一化为 `string` 或 `{ text, messages }` |
-| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | 先 `normalizeParagraphs()` 归一换行（任意段间换行 → 一个空行；围栏/表格/引用/列表不拆；行尾冒号后的单换行保持原样；HTML 容器块连块内空行一起原样保留）再 `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target","open"], ADD_TAGS: ["details","summary"], FORBID_TAGS: ["style","form","input"] })`；消毒后 `boldQuotes()` 用 TreeWalker 把引号包住的台词包成 `<strong class="md-quote">`（跳过 `code` / `pre`，已开未闭的引号算到行尾）；解析异常时转义原文兜底 |
+| `marked` `^18.1.3` + `dompurify` `^3.4.17` | `src/components/chat/Markdown.tsx` | Markdown 渲染与消毒 | 先 `normalizeParagraphs()` 归一换行（任意段间换行 → 一个空行；围栏/表格/引用/列表不拆；行尾冒号后的单换行保持原样；HTML 容器块连块内空行一起原样保留）再 `marked.parse(content, { async: false })`；`DOMPurify.sanitize(..., { ADD_ATTR: ["target","open"], ADD_TAGS: ["details","summary"], FORBID_TAGS: ["style","form","input"] })`；消毒后 `boldQuotes()` 用 TreeWalker 把引号包住的台词包成 `<strong class="md-quote">`（六种引号：`「」『』“”‘’""''`；引号嵌套只认最外层、整段一起粗；跳过 `code` / `pre`；已开未闭的引号算到本段结尾；开合匹配与跨节点的区间换算在 `src/components/chat/quote-runs.ts`，纯文本逻辑、不碰 DOM）；解析异常时转义原文兜底 |
 
 ### 2.4 样式与视觉（设计描述见第 5 章）
 
@@ -141,7 +141,7 @@ pnpm deploy     # vite build && wrangler deploy（先 wrangler login）
 | 正在写入的那条 | 单独 `StreamingBubble` 订阅 `buffer` / `logs` / `startedAt` | chunk 级重渲染被关进一个子树，外面完全不动 |
 | `useSmoothText` | 追平立刻停掉 rAF，`text` 变长再启动 | 模型停顿的那几百毫秒里没有新字可揭，空转只会白烧 60 帧/秒 |
 | `MessageItem` / `MessageActivity` / `MessageList` / `ChatHeader` | 全部 `memo`，传进去的回调用 `useCallback` | 打字时 `ChatView` 每键都重渲染；memo 边界一旦被内联箭头打破，整列消息会跟着每个字符走一遍 |
-| `Markdown` | `normalizeParagraphs` → `splitMarkdownBlocks` → 只解析尾块 | 6k 字整段重解析约 1.5ms/帧，按块缓存后尾块约 0.1ms（归一 0.095ms + 切块 0.047ms）。两步切分都带 HTML 容器块状态机（按同名标签的开闭计数推进），块内不做 keepTight 判断、空行不切块，成本是一次 `test` + 命中时才跑两条正则。消毒后的 `boldQuotes` 也在这条热路径上：它只走文本节点，且整块没有引号时直接返回原串，别在它里面加遍历整棵树的逻辑 |
+| `Markdown` | `normalizeParagraphs` → `splitMarkdownBlocks` → 只解析尾块 | 6k 字整段重解析约 1.5ms/帧，按块缓存后尾块约 0.1ms（归一 0.095ms + 切块 0.047ms）。两步切分都带 HTML 容器块状态机（按同名标签的开闭计数推进），块内不做 keepTight 判断、空行不切块，成本是一次 `test` + 命中时才跑两条正则。消毒后的 `boldQuotes` 也在这条热路径上：它只走文本节点，按最近的块级祖先把节点编组后交给 `planQuotes()` 扫一遍（同一段里的引号可能被 `<br>` 切成好几个节点，开合状态必须跨节点延续），整块没有引号时直接返回原串，别在它里面加遍历整棵树的逻辑 |
 | 落库后回写 | `finish()` 用 `appendMessage` 的返回值并进内存 | 长会话不必每次回复都 `select * from messages` 全量重读 + 反序列化 `meta` |
 | 上下文估算 | 输入框用 `useDeferredValue` 喂 `assembleContext` | 装配要扫全部历史，按键触发的高频重算会和输入争同一帧 |
 | `setSettings` | 主题 / 强调色没变就不调 `applyTheme` | 设置里每敲一个字都会走这里，重刷 CSS 变量等于整页样式失效 |
@@ -393,6 +393,20 @@ return { text: "已注入提示", messages: ctx.messages };
   - 入口分两层：**空间设置 → 基础**里传底图（可多选，每张都进 `space.image_seeds`），**角色抽屉**里点缩略图挑一张，写进 `character.active_seed`；新建角色默认就落在空间底图库的第一张上。没选底图又开了图生图会直接提示去上传，不会偷偷退化成文生图。老数据只有一个值、没有列表时，读出来当列表的第一张。
 - **调度**：绘图请求慢于聊天，撞上正在画时排队（上限 4），换会话清空队列——那些任务绑的是上一个会话的气泡，留着只会画到没人在看的对话上。
 
+### 4.6 自建后端（Colab + ComfyUI）
+
+不想按张付钱时可以换这条路：GPU 借 Colab 的，模型自己带，接口形状仍然是 OpenAI 的。**应用侧只多一条档案，请求层没有分支** —— 「Colab SDXL」预设把 endpoint 指向 `http://127.0.0.1:8788/v1/images/edits`，而 `steps` / `cfg` / `denoise` / `sampler` 这些参数在 `mode: "edit"` 下本来就是逐字段铺进 multipart，`image-gen.ts` 不需要知道对面是谁。
+
+三段链路，各自不可替代：
+
+| 部件 | 位置 | 为什么必须在这 |
+| --- | --- | --- |
+| `colab/bridge/server.mjs` | 本机 `127.0.0.1:8788` | 应用直连 Colab 会撞两堵墙：跨站请求带不上会话 cookie、ComfyUI 不发 CORS 头。只有本机进程能自由发 CORS 头 |
+| `colab/userscript/sdxl-colab-bridge.user.js` | Colab 页面 | 本机进程够不着 Colab，应用也够不着；只有这个标签页能同时摸到两边（`GM_xmlhttpRequest` 走扩展网络栈，不吃同源 / SameSite） |
+| `colab/notebook/RP-Studio_SDXL_Colab.ipynb` | Colab | 装 ComfyUI、下 SDXL + LoRA、把模型缓存进 Google Drive、打印端口代理地址 |
+
+节点图只存在于 bridge 一处（`CheckpointLoaderSimple → [LoraLoader…] → CLIPTextEncode → LoadImage/ImageScale → VAEEncode → KSampler → VAEDecode → SaveImage`），油猴脚本只搬不拼——换底模改 `config.json`，不用重装脚本。上手指南、参数表与排错见 [`colab/README.md`](colab/README.md)。
+
 ---
 
 ## 5. 界面与交互 · 自然语言提示词
@@ -466,7 +480,7 @@ return { text: "已注入提示", messages: ctx.messages };
 
 回复面的上方是一条可以省略的活动流：生成时是一行低调的状态条——柔光扫过的标签加一枚不跳动的计时，工作流节点日志作为条目在下面逐条滑入，超出高度就贴着底部往上滚；写完后整条收起成「完成 N 个步骤」，点开才看执行轨迹。后端目前只给正文、不给推理文本，所以状态条从头到尾写「正在回复」并计时，不要凭空造一段「思考了多久」；等模型开始返回推理内容，才在正文之前多一段「正在思考」和推理文本。没有轨迹可看的普通对话，回复写完就收起整条，不留一行计时。
 
-用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。渲染之后再补一层排版：**引号里的整段台词加粗**（`「」` `『』` `“”` `""` 四种都认），斜体压淡一档——他的正文里斜体表示动作、心里话，不是强调，让它退到台词后面。这两条只作用于文本节点，`code` / `pre` 里的引号原样保留；流式期间已开未闭的引号先按到行尾加粗，避免台词打到一半才突然变粗、行宽跳一下。
+用户输入的正文当纯文本看待，角色回复再做 Markdown 渲染并消毒——模型输出属于不可信内容，这一步不能省。渲染之后再补一层排版：**引号里的整段台词加粗**（`「」` `『』` `“”` `‘’` 和直引号 `""` `''` 六种都认；直引号没有方向，按前后是空白 / 标点判开合，`don't`、`5'10"` 里的撇号不算台词），斜体压淡一档——他的正文里斜体表示动作、心里话，不是强调，让它退到台词后面。引号叠引号时只包最外层一个 `<strong>`，里层自然跟着一起粗，不会出现外层正常、内层加粗的半截效果。这两条只作用于文本节点，`code` / `pre` 里的引号原样保留；一句台词被单换行或行内强调切成几段时，开合跨节点继续判断，不会只粗前半句；流式期间已开未闭的引号先按到本段结尾加粗，避免台词打到一半才突然变粗、行宽跳一下。
 
 渲染前先归一换行：模型吐出来的 1 个换行和 4 个换行在屏幕上是两种间距，一段紧一段松，读起来很跳。归一之后，任意两段文字之间都恰好是一个空行；代码围栏整块原样保留，表格逐行、引用连续、列表项连续、缩进续行这些靠「相邻行」成形的结构也不拆开，**HTML 容器块**（`<details>` / `<div>` / `<table>` 这类）同样整块保留、块内空行也照留——`<details>` 与 `</details>` 一旦被切进两个渲染块，浏览器会把前一个自动闭合，折叠面板就成了空壳，代码全掉到面板外面。唯一的例外是**行尾冒号**：「他说：」后面只跟了一个换行时保持单换行，把下一行留在同一段里——那是同一句话的展开，拆成两段会把话读断；冒号后面真有空的，照样分段。段落间距只由 `.md > * + *` 给统一值，块自身不带上下外边距。
 ```

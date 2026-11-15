@@ -4,6 +4,7 @@ import { memo, useMemo } from "react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { cn } from "../../lib/utils";
+import { planQuotes } from "./quote-runs";
 
 marked.setOptions({ gfm: true, breaks: true });
 
@@ -19,47 +20,63 @@ const SANITIZE = {
  * 角色扮演的正文基本是「台词 + 叙述」交替：台词在引号里，叙述常常是斜体。
  * 这里把引号包住的整段话包进 <strong>，台词自然从叙述里跳出来。
  *
+ * 引号六种都认：`「」` `『』` `“”` `‘’` 和直引号 `""` `''`。直引号没有方向，
+ * 靠前后字符判开合（见 quote-runs.ts），所以英文里的撇号不会被当成台词。
+ *
+ * 引号套引号时只认最外层，整段包一个 <strong>：里层的引号跟着外层一起是粗的，
+ * 不会出现「外层正常、内层加粗」那种半截效果。
+ *
  * 只处理文本节点，标签（含属性里的引号）一概不动；`code` / `pre` 里的引号是代码，
- * 跳过。末尾那个 `(?:」|$)` 让流式期间已开未闭的引号也先加粗，
- * 免得台词打到一半才突然变粗、跳一下行宽。
+ * 跳过。几个文本节点会因为 `<br>`（单换行）或行内强调被切开，所以按「最近的块级
+ * 祖先」编组后拼成一段再扫：一句台词跨了换行也还是同一段，闭引号落在后半句上照样认得。
  */
-const QUOTE_RUN = /「[^「」]+(?:」|$)|『[^『』]+(?:』|$)|“[^“”]+(?:”|$)|"[^"]+(?:"|$)/g;
+const BLOCK_OWNER =
+  "p, li, td, th, blockquote, h1, h2, h3, h4, h5, h6, div, section, figure, details, summary, table, ul, ol, dl, pre";
+
+/** 把一个文本节点按区间切开，加粗的部分包 <strong> */
+function wrapRuns(node: Text, slices: Array<[number, number]>) {
+  const text = node.data;
+  const fragment = document.createDocumentFragment();
+  let last = 0;
+  for (const [start, end] of slices) {
+    if (start > last) fragment.append(text.slice(last, start));
+    const strong = document.createElement("strong");
+    strong.className = "md-quote";
+    strong.textContent = text.slice(start, end);
+    fragment.append(strong);
+    last = end;
+  }
+  if (last < text.length) fragment.append(text.slice(last));
+  node.replaceWith(fragment);
+}
 
 function boldQuotes(html: string): string {
   if (typeof document === "undefined") return html;
-  if (!/[「『“"]/.test(html)) return html;
+  if (!/[「『“‘"']/.test(html)) return html;
 
   const template = document.createElement("template");
   template.innerHTML = html;
 
   const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
-  const nodes: Text[] = [];
-  while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+  const groups: Array<{ owner: Element | null; nodes: Text[] }> = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode as Text;
+    if (node.parentElement?.closest("code, pre")) continue;
+    const owner = node.parentElement?.closest(BLOCK_OWNER) ?? null;
+    const last = groups[groups.length - 1];
+    if (last && last.owner === owner) last.nodes.push(node);
+    else groups.push({ owner, nodes: [node] });
+  }
 
   let changed = false;
-  for (const node of nodes) {
-    if (node.parentElement?.closest("code, pre")) continue;
-
-    const text = node.data;
-    const re = new RegExp(QUOTE_RUN.source, "g");
-    let last = 0;
-    let match: RegExpExecArray | null;
-    let fragment: DocumentFragment | null = null;
-
-    while ((match = re.exec(text))) {
-      fragment ??= document.createDocumentFragment();
-      if (match.index > last) fragment.append(text.slice(last, match.index));
-      const strong = document.createElement("strong");
-      strong.className = "md-quote";
-      strong.textContent = match[0];
-      fragment.append(strong);
-      last = match.index + match[0].length;
-    }
-
-    if (!fragment) continue;
-    if (last < text.length) fragment.append(text.slice(last));
-    node.replaceWith(fragment);
-    changed = true;
+  for (const { nodes } of groups) {
+    const plan = planQuotes(nodes.map((node) => node.data));
+    nodes.forEach((node, index) => {
+      const slices = plan[index];
+      if (!slices.length) return;
+      wrapRuns(node, slices);
+      changed = true;
+    });
   }
 
   return changed ? template.innerHTML : html;
