@@ -21,8 +21,11 @@ export interface SystemBlock extends ContextBlockBase {
 }
 
 /**
- * 当前角色的专属系统提示词（来自角色的 systemPrompt）。
- * 编排是空间的，所有角色共用一份；每个角色只替换这一块的文字。
+ * 角色档案块：位置固定在用户回复之前，内容是「角色档案」的当前版本。
+ *
+ * 第 0 版就是角色的 `systemPrompt` 原文（用户自己写的那段设定），之后每 N 轮
+ * 由后台整理出一版新的原文存在 `profiles` 表里 —— 自定义与后续演化是同一条链路，
+ * 注入时永远是原文，没有结构化字段。
  */
 export interface CharacterPromptBlock extends ContextBlockBase {
   kind: "character";
@@ -93,6 +96,29 @@ export interface ModelProfile extends ModelConfig {
 }
 
 /**
+ * 角色档案的演化配置。挂在空间上（和编排同一层），档案本身按会话存。
+ *
+ * `enabled` 只管「要不要自动整理」：关掉之后已有版本照常注入，只是不再生成新的。
+ */
+export interface ProfileConfig {
+  enabled: boolean;
+  /** 每多少轮整理一次（一轮 = 一问一答） */
+  every: number;
+  /** 合并指令，支持 {{char}} / {{user}}；输出形状由它约定 */
+  instruction: string;
+}
+
+/**
+ * 一版档案：`round` 是它覆盖到的轮数（6 = 前 6 轮聊完之后整理出来的）。
+ * 注入第几版由当前会话的轮数决定，所以回头重新生成旧消息时能拿回那一版。
+ */
+export interface ProfileSnapshot {
+  round: number;
+  content: string;
+  createdAt: string;
+}
+
+/**
  * 一个空间：共享的舞台。
  * 提示词工程、上下文编排、工作流、脚本、底图库都挂在它身上 —— 空间里的角色共用这一套。
  */
@@ -111,6 +137,8 @@ export interface Space {
   quickPhrases: QuickPhrase[];
   workflow: Workflow;
   script: string;
+  /** 角色档案的自动整理配置 */
+  profile: ProfileConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -129,8 +157,9 @@ export interface Character {
   /** 初始消息：新建会话时作为角色的第一条消息写入 */
   greeting: string;
   /**
-   * 角色设定提示词：由编排里的「角色专属提示」块注入，
-   * 同时是会话首页展示给用户看的那段人物设定。
+   * 角色设定：也是角色档案的第 0 版。由编排里的「角色档案」块注入，
+   * 同时是会话首页展示给用户看的那段人物设定；开了自动整理之后，
+   * 它会被后续版本的档案接替，但原文一直留在这里当起点。
    */
   systemPrompt: string;
   /**

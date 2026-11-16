@@ -15,7 +15,7 @@ import {
   Type,
   UserRound,
 } from "lucide-react";
-import type { Character, ContextBlock, Message, Role, Space } from "../../lib/types";
+import type { Character, ContextBlock, Message, ProfileConfig, ProfileSnapshot, Role, Space } from "../../lib/types";
 import {
   DEFAULT_IMAGE_DIRECTIVE,
   assembleContext,
@@ -25,6 +25,7 @@ import {
   isKnownBlockKind,
   newBlockId,
 } from "../../lib/context";
+import { DEFAULT_PROFILE_INSTRUCTION, countRounds, profileText } from "../../lib/profile";
 import { cn } from "../../lib/utils";
 import { Button, IconButton } from "../ui/Button";
 import { Modal } from "../ui/Modal";
@@ -36,6 +37,10 @@ export function ContextEditor({
   character,
   blocks,
   onChange,
+  onProfileChange,
+  activeProfile,
+  onRunProfile,
+  profileRunning,
   history,
   userName,
   imageEnabled,
@@ -44,6 +49,12 @@ export function ContextEditor({
   character: Character;
   blocks: ContextBlock[];
   onChange: (blocks: ContextBlock[]) => void;
+  /** 角色档案的整理配置存在空间上，改它要回到空间草稿 */
+  onProfileChange: (patch: Partial<ProfileConfig>) => void;
+  /** 当前会话该注入的那一版；为空表示还没整理过，用的是角色设定原文 */
+  activeProfile: ProfileSnapshot | null;
+  onRunProfile: () => void;
+  profileRunning: boolean;
   history: Message[];
   userName: string;
   /** 图生图开关：关着时「生图 JSON 预设」不显示、也不参与装配 */
@@ -82,19 +93,22 @@ export function ContextEditor({
   };
 
   const hasImageBlock = blocks.some((block) => block.kind === "image");
+  const rounds = countRounds(history);
+  const archive = profileText(character, activeProfile);
+  const profileConfig = space.profile;
 
-  // 编排是空间的，角色只贡献自己那段专属提示词：预览按「当前编排 + 当前角色」跑一遍
+  // 编排是空间的，角色只贡献自己那段档案：预览按「当前编排 + 当前角色 + 当前版本」跑一遍
   const preview = useMemo(
     () =>
       assembleContext({
         space: { ...space, contextBlocks: blocks },
-        character,
+        character: { ...character, profile: activeProfile?.content ?? "" },
         history,
         input: "（这里预览当前用户输入）",
         userName,
         imageEnabled,
       }),
-    [blocks, space, character, history, userName, imageEnabled],
+    [blocks, space, character, activeProfile, history, userName, imageEnabled],
   );
 
   return (
@@ -129,7 +143,9 @@ export function ContextEditor({
                 : block.kind === "system"
                   ? space.systemPrompt || "尚未填写共享提示"
                   : block.kind === "character"
-                    ? character.systemPrompt || `当前角色「${character.name}」未填写专属提示`
+                    ? activeProfile
+                      ? `第 ${activeProfile.round} 轮版 · ${activeProfile.content.split("\n")[0] || "……"}`
+                      : `角色设定原文（还没整理过）· ${archive.split("\n")[0] || "空"}`
                     : block.kind === "image"
                       ? block.content.split("\n")[0] || "未填写预设"
                       : "当前输入会插入到这里";
@@ -265,13 +281,66 @@ export function ContextEditor({
                       )}
 
                       {block.kind === "character" && (
-                        <div>
-                          <p className="mb-1 text-[11px] text-fg-subtle">
-                            当前角色「{character.name}」的专属提示（在角色编辑里改）
+                        <div className="space-y-3">
+                          <div>
+                            <p className="mb-1 text-[11px] text-fg-subtle">
+                              这一会话已经聊到第 {rounds} 轮 · 当前注入{" "}
+                              {activeProfile ? `第 ${activeProfile.round} 轮整理的那一版` : "角色设定原文（第 0 版）"}
+                              ；回看更早的消息时用当时那一版
+                            </p>
+                            <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-inset-lg py-2.5 font-sans text-[12px] leading-relaxed text-fg-muted">
+                              {archive || "（这个角色还没写设定，先到角色编辑里补一段）"}
+                            </pre>
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-[11.5px] text-fg-muted">
+                              <Switch
+                                size="sm"
+                                checked={profileConfig.enabled}
+                                onChange={(enabled) => onProfileChange({ enabled })}
+                                label="自动整理角色档案"
+                              />
+                              自动整理
+                            </label>
+                            <span className="text-[11.5px] text-fg-subtle">
+                              每 {profileConfig.every} 轮整理一次 · 改频率去「基础」
+                            </span>
+                          </div>
+                          <p className="text-[11px] leading-relaxed text-fg-subtle">
+                            一轮 = 一问一答。整理不挡聊天，你可以接着说；关掉开关后不再生成新版本，已有的版本照常注入。
                           </p>
-                          <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-xl bg-surface-2 px-inset-lg py-2.5 font-sans text-[12px] leading-relaxed text-fg-muted">
-                            {character.systemPrompt || "（这个角色还没写专属提示）"}
-                          </pre>
+
+                          <div>
+                            <p className="mb-1.5 text-[11px] text-fg-subtle">
+                              合并指令：每次整理时连同「本段对话 + 当前档案」一起发给模型，输出只取 JSON 里「角色档案」那个键的原文
+                            </p>
+                            <textarea
+                              value={profileConfig.instruction}
+                              onChange={(e) => onProfileChange({ instruction: e.target.value })}
+                              className="min-h-[140px] w-full resize-y rounded-xl bg-surface-2 px-inset-lg py-2.5 font-mono text-[11.5px] leading-relaxed outline-none transition-colors placeholder:text-fg-subtle focus:ring-2 focus:ring-[var(--ring)]/15"
+                            />
+                            <div className="mt-1.5 flex items-center justify-between gap-2">
+                              <p className="text-[11px] text-fg-subtle">支持 {"{{char}}"} / {"{{user}}"}</p>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => onProfileChange({ instruction: DEFAULT_PROFILE_INSTRUCTION })}
+                                  className="text-[11px] text-fg-subtle transition-colors hover:text-primary"
+                                >
+                                  恢复默认
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={onRunProfile}
+                                  disabled={profileRunning || rounds === 0}
+                                  className="rounded-full bg-surface-2 px-inset-pill py-1.5 text-[11px] text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+                                >
+                                  {profileRunning ? "整理中…" : rounds === 0 ? "聊过一轮再整理" : "立即整理"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -405,7 +474,7 @@ export function ContextEditor({
         {(
           [
             { kind: "system", label: "空间系统提示" },
-            { kind: "character", label: "角色专属提示" },
+            { kind: "character", label: "角色档案" },
             { kind: "history", label: "历史对话" },
             { kind: "custom", label: "自定义提示词" },
             { kind: "user", label: "用户回复" },

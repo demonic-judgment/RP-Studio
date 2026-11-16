@@ -4,6 +4,7 @@ import { ArrowDown, ChevronRight } from "lucide-react";
 import { useStore } from "../../lib/store";
 import type { Character, Message, Space } from "../../lib/types";
 import { interpolate } from "../../lib/context";
+import { countRounds, pickProfile, profileText } from "../../lib/profile";
 import { CharacterAvatar, characterSeed } from "../character/CharacterAvatar";
 import { MessageItem } from "./MessageItem";
 
@@ -218,15 +219,19 @@ function StreamingBubble({ character, seed }: { character: Character; seed: stri
 }
 
 /**
- * 角色设定（已经有消息时的形态）：压在消息列表顶部，不因为聊起来就消失。
+ * 角色档案（已经有消息时的形态）：压在消息列表顶部，不因为聊起来就消失。
+ * 内容跟着会话走：整理过的用那一版，没整理过就是角色设定原文。
  * 默认展开；太长时卡片内部自己滚，用户可以收起，收起后再点展开。
  */
 function CharacterBrief({ character, seed }: { character: Character; seed: string }) {
   const userName = useStore((s) => s.settings.userName);
+  const profiles = useStore((s) => s.profiles);
+  const messages = useStore((s) => s.messages);
   const [open, setOpen] = useState(true);
+  const snapshot = useMemo(() => pickProfile(profiles, countRounds(messages)), [profiles, messages]);
   const setting = useMemo(
-    () => interpolate(character.systemPrompt, { char: character.name, user: userName }).trim(),
-    [character.systemPrompt, character.name, userName],
+    () => interpolate(profileText(character, snapshot), { char: character.name, user: userName }).trim(),
+    [character, snapshot, userName],
   );
 
   if (!setting) return null;
@@ -236,9 +241,14 @@ function CharacterBrief({ character, seed }: { character: Character; seed: strin
       <div className="flex items-center gap-2">
         <CharacterAvatar seed={seed} emoji={character.avatar} className="w-[13px]" emojiSize={9} />
         <span className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
-          角色设定
+          角色档案
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-fg-subtle/80">{character.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-fg-subtle/80">
+          {character.name}
+          <span className="ml-1.5 text-fg-subtle/60">
+            {snapshot ? `第 ${snapshot.round} 轮版` : "角色设定"}
+          </span>
+        </span>
         <button
           type="button"
           onClick={() => setOpen((value) => !value)}
@@ -295,7 +305,7 @@ function CharacterIntro({
         {setting ? (
           <div className="mt-5 w-full max-w-[520px] rounded-2xl bg-surface-2/70 px-inset-lg py-4 text-left">
             <p className="mb-2 text-[10.5px] font-medium uppercase tracking-[0.12em] text-fg-subtle">
-              角色设定
+              角色档案
             </p>
             <p className="max-h-[260px] overflow-y-auto whitespace-pre-wrap break-words text-[12.5px] leading-relaxed text-fg-muted">
               {setting}

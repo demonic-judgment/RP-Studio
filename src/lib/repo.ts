@@ -5,6 +5,7 @@ import type {
   Message,
   MessageImage,
   MessageMeta,
+  ProfileSnapshot,
   QuickPhrase,
   Session,
   Space,
@@ -13,6 +14,7 @@ import type {
 } from "./types";
 import { nowIso, uid } from "./utils";
 import { defaultContextBlocks, ensureCharacterBlock, normalizeContextBlocks } from "./context";
+import { normalizeProfileConfig, defaultProfileConfig } from "./profile";
 
 /* ------------------------------- row mapping ------------------------------ */
 
@@ -27,6 +29,7 @@ type SpaceRow = {
   quick_phrases: unknown;
   workflow: unknown;
   script: string;
+  profile: unknown;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -111,6 +114,8 @@ function mapSpace(row: SpaceRow): Space {
     quickPhrases: asObject<QuickPhrase[]>(row.quick_phrases, []),
     workflow: asObject<Workflow>(row.workflow, { enabled: false, nodes: [], edges: [] }),
     script: row.script ?? "",
+    // 老空间没有这一列（或值为 {}）：补成默认配置，界面上不用到处判空
+    profile: normalizeProfileConfig(row.profile),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -201,8 +206,8 @@ export async function createSpace(
     const { rows } = await tx.query<SpaceRow>(
       `insert into spaces
         (id, name, avatar, image_seed, image_seeds, system_prompt,
-         context_blocks, quick_phrases, workflow, script, created_at, updated_at)
-       values ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11,$11)
+         context_blocks, quick_phrases, workflow, script, profile, created_at, updated_at)
+       values ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12,$12)
        returning *`,
       [
         spaceId,
@@ -215,6 +220,7 @@ export async function createSpace(
         JSON.stringify(draft.quickPhrases ?? []),
         JSON.stringify(draft.workflow ?? { enabled: false, nodes: [], edges: [] }),
         draft.script ?? "",
+        JSON.stringify(normalizeProfileConfig(draft.profile)),
         ts,
       ],
     );
@@ -257,6 +263,7 @@ export async function updateSpace(id: string, patch: SpaceDraft): Promise<Space>
   if (patch.quickPhrases !== undefined) push("quick_phrases", JSON.stringify(patch.quickPhrases), "::jsonb");
   if (patch.workflow !== undefined) push("workflow", JSON.stringify(patch.workflow), "::jsonb");
   if (patch.script !== undefined) push("script", patch.script);
+  if (patch.profile !== undefined) push("profile", JSON.stringify(normalizeProfileConfig(patch.profile)), "::jsonb");
 
   push("updated_at", nowIso());
   values.push(id);
@@ -642,6 +649,73 @@ export async function pruneImages(sessionId: string, keep?: string): Promise<voi
   );
 }
 
+/* --------------------------------- profiles ------------------------------- */
+
+type ProfileRow = {
+  id: string;
+  session_id: string;
+  round: number;
+  content: string;
+  created_at: string | Date;
+};
+
+/**
+ * 一版档案在库里的形态：对外只留 round / content / createdAt，
+ * id 与 sessionId 是表相关的东西，界面用不上（同一个会话里 round 就是唯一键）。
+ */
+function mapProfile(row: ProfileRow): ProfileSnapshot {
+  return {
+    round: Number(row.round ?? 0),
+    content: row.content ?? "",
+    createdAt: iso(row.created_at),
+  };
+}
+
+export async function listProfiles(sessionId: string): Promise<ProfileSnapshot[]> {
+  const { rows } = await getDb().query<ProfileRow>(
+    "select * from profiles where session_id = $1 order by round asc, created_at asc",
+    [sessionId],
+  );
+  return rows.map(mapProfile);
+}
+
+export async function appendProfile(input: {
+  sessionId: string;
+  round: number;
+  content: string;
+}): Promise<ProfileSnapshot> {
+  const { rows } = await getDb().query<ProfileRow>(
+    `insert into profiles (id, session_id, round, content, created_at)
+     values ($1,$2,$3,$4,$5) returning *`,
+    // profiles.id 是 uuid 列：裸 uid()，不能带前缀
+    [uid(), input.sessionId, input.round, input.content, nowIso()],
+  );
+  return mapProfile(rows[0]);
+}
+
+/** 回溯 / 重新生成之后，把「未来」的版本删掉 —— 档案跟着聊天记录走 */
+export async function trimProfiles(sessionId: string, keepRound: number): Promise<void> {
+  await getDb().query("delete from profiles where session_id = $1 and round > $2", [
+    sessionId,
+    keepRound,
+  ]);
+}
+
+/** 分支对话：把分支点之前的档案一起带过去（同一个会话的拷贝，round 不变） */
+export async function copyProfiles(
+  fromSessionId: string,
+  toSessionId: string,
+  maxRound: number,
+): Promise<void> {
+  await getDb().query(
+    `insert into profiles (id, session_id, round, content, created_at)
+     select md5(random()::text || clock_timestamp()::text)::uuid, $2, round, content, created_at
+       from profiles
+      where session_id = $1 and round <= $3`,
+    [fromSessionId, toSessionId, maxRound],
+  );
+}
+
 /* --------------------------------- settings ------------------------------- */
 
 export async function loadSettings(): Promise<Record<string, unknown>> {
@@ -671,6 +745,8 @@ export interface BackupFile {
   messages: Message[];
   /** 更早的备份没有这一段，导入时按空数组处理 */
   images?: MessageImage[];
+  /** 角色档案的各版原文；同样允许缺省（可再生成，丢了不影响聊天） */
+  profiles?: (ProfileSnapshot & { sessionId: string })[];
   settings: Record<string, unknown>;
 }
 
@@ -683,6 +759,8 @@ export interface LegacyBackupFile {
   sessions: Array<Record<string, unknown>>;
   messages: Message[];
   images?: MessageImage[];
+  /** 老备份没有档案：读的时候按空处理 */
+  profiles?: (ProfileSnapshot & { sessionId: string })[];
   settings: Record<string, unknown>;
 }
 
@@ -691,12 +769,13 @@ const num = (v: unknown, fallback = 0): number => (typeof v === "number" ? v : f
 
 export async function exportAll(): Promise<BackupFile> {
   const db = getDb();
-  const [spaces, chars, sess, msgs, imgs, settings] = await Promise.all([
+  const [spaces, chars, sess, msgs, imgs, profiles, settings] = await Promise.all([
     db.query<SpaceRow>("select * from spaces order by created_at"),
     db.query<CharacterRow>("select * from characters order by space_id, sort_order, created_at"),
     db.query<SessionRow>("select * from sessions order by created_at"),
     db.query<MessageRow>("select * from messages order by created_at"),
     db.query<ImageRow>("select * from images order by created_at"),
+    db.query<ProfileRow>("select * from profiles order by session_id, round"),
     db.query<{ key: string; value: unknown }>("select key, value from settings"),
   ]);
   const settingsObj: Record<string, unknown> = {};
@@ -710,6 +789,7 @@ export async function exportAll(): Promise<BackupFile> {
     sessions: sess.rows.map(mapSession),
     messages: msgs.rows.map(mapMessage),
     images: imgs.rows.map(mapImage),
+    profiles: profiles.rows.map((row) => ({ sessionId: row.session_id, ...mapProfile(row) })),
     settings: settingsObj,
   };
 }
@@ -732,6 +812,8 @@ function spaceFromLegacyCard(card: Record<string, unknown>): Space {
     quickPhrases: Array.isArray(card.quickPhrases) ? (card.quickPhrases as QuickPhrase[]) : [],
     workflow: (card.workflow as Workflow) ?? { enabled: false, nodes: [], edges: [] },
     script: str(card.script),
+    // 老卡没有档案配置：按默认（关闭）补一份，用户想开再开
+    profile: defaultProfileConfig(),
     createdAt: str(card.createdAt, nowIso()),
     updatedAt: str(card.updatedAt, nowIso()),
   };
@@ -799,13 +881,13 @@ export async function importAll(data: BackupFile | LegacyBackupFile): Promise<vo
   const db = getDb();
   await db.transaction(async (tx) => {
     await tx.exec(
-      "delete from images; delete from messages; delete from sessions; delete from characters; delete from spaces; delete from settings;",
+      "delete from profiles; delete from images; delete from messages; delete from sessions; delete from characters; delete from spaces; delete from settings;",
     );
     for (const s of spaces) {
       await tx.query(
         `insert into spaces
-          (id,name,avatar,image_seed,image_seeds,system_prompt,context_blocks,quick_phrases,workflow,script,created_at,updated_at)
-         values ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11,$12)`,
+          (id,name,avatar,image_seed,image_seeds,system_prompt,context_blocks,quick_phrases,workflow,script,profile,created_at,updated_at)
+         values ($1,$2,$3,$4,$5::jsonb,$6,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11::jsonb,$12,$13)`,
         [
           s.id,
           s.name,
@@ -817,6 +899,7 @@ export async function importAll(data: BackupFile | LegacyBackupFile): Promise<vo
           JSON.stringify(s.quickPhrases ?? []),
           JSON.stringify(s.workflow ?? { enabled: false, nodes: [], edges: [] }),
           s.script ?? "",
+          JSON.stringify(normalizeProfileConfig(s.profile)),
           s.createdAt,
           s.updatedAt,
         ],
@@ -874,6 +957,12 @@ export async function importAll(data: BackupFile | LegacyBackupFile): Promise<vo
         ],
       );
     }
+    for (const row of data.profiles ?? []) {
+      await tx.query(
+        `insert into profiles (id, session_id, round, content, created_at) values ($1,$2,$3,$4,$5)`,
+        [uid(), row.sessionId, row.round, row.content ?? "", row.createdAt ?? nowIso()],
+      );
+    }
     for (const [key, value] of Object.entries(data.settings ?? {})) {
       await tx.query("insert into settings (key,value) values ($1,$2::jsonb)", [key, JSON.stringify(value)]);
     }
@@ -882,7 +971,7 @@ export async function importAll(data: BackupFile | LegacyBackupFile): Promise<vo
 
 export async function clearAllData(): Promise<void> {
   await getDb().exec(
-    "delete from images; delete from messages; delete from sessions; delete from characters; delete from spaces; delete from settings;",
+    "delete from profiles; delete from images; delete from messages; delete from sessions; delete from characters; delete from spaces; delete from settings;",
   );
 }
 

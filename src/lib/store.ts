@@ -13,12 +13,24 @@ import type {
   MessageVariant,
   ModelConfig,
   ModelProfile,
+  ProfileSnapshot,
   Session,
   Space,
   SpaceDraft,
 } from "./types";
 import * as repo from "./repo";
 import { assembleContext, ensureImageDirectiveBlock, interpolate, upgradeImageDirective } from "./context";
+import {
+  buildProfileMessages,
+  countRounds,
+  extractProfileText,
+  isProfileDue,
+  messagesSinceRound,
+  pickProfile,
+  profileModelConfig,
+  profileText,
+  transcriptOf,
+} from "./profile";
 import { chatCompletion } from "./llm";
 import { runScript } from "./script";
 import { runWorkflow, type WorkflowRunEvent } from "./workflow";
@@ -63,6 +75,10 @@ interface Store {
   messages: Message[];
   /** 当前会话的全部生成图，按 createdAt 升序；同一 messageId 下就是「第二维」 */
   images: MessageImage[];
+  /** 当前会话的档案各版原文，按 round 升序；空 = 还没整理过，用角色设定原文 */
+  profiles: ProfileSnapshot[];
+  /** 后台整理档案的运行态：和 stream 分开，聊天不用等它 */
+  profileRun: { running: boolean; sessionId: string | null; error: string | null };
   /** 画面组件正在看哪一张：messageId 是第一维，imageId 是第二维里的某一版 */
   imageView: { messageId: string; imageId: string } | null;
   /** 生图运行态，和聊天的 stream 分开 —— 画图时聊天照常能发 */
@@ -129,6 +145,12 @@ interface Store {
   editMessage: (messageId: string, content: string) => Promise<void>;
   removeMessage: (messageId: string) => Promise<void>;
   stop: () => void;
+
+  /**
+   * 整理角色档案：把上次整理之后的对话合并进当前档案，存成新的一版。
+   * 自动触发（回复落库后踩到间隔）与手动（空间设置里的「立即整理」）共用这一条。
+   */
+  runProfile: (options?: { manual?: boolean }) => Promise<void>;
 
   exportData: () => Promise<repo.BackupFile>;
   importData: (data: repo.BackupFile | repo.LegacyBackupFile) => Promise<void>;
@@ -224,6 +246,8 @@ const emptyImageRun: ImageRunState = {
   error: null,
 };
 
+const emptyProfileRun = { running: false, sessionId: null, error: null } as const;
+
 type ImageTask = { messageId?: string; prompt?: string; baseImageId?: string };
 
 /**
@@ -313,9 +337,11 @@ export const useStore = create<Store>((set, get) => ({
   characters: [],
   sessions: [],
   messages: [],
+  profiles: [],
   images: [],
   imageView: null,
   imageRun: emptyImageRun,
+  profileRun: emptyProfileRun,
   settings: DEFAULT_SETTINGS,
   activeSpaceId: null,
   activeCharacterId: null,
@@ -666,9 +692,11 @@ export const useStore = create<Store>((set, get) => ({
       activeCharacterId: id,
       activeSessionId: null,
       messages: [],
+      profiles: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
     });
 
     let sessions = await repo.listSessions(id);
@@ -686,13 +714,19 @@ export const useStore = create<Store>((set, get) => ({
     set({ activeSessionId: id });
     // 换会话就丢掉排队中的生图：它们绑的是上一个会话的气泡
     clearImageQueue();
-    const [messages, images] = await Promise.all([repo.listMessages(id), repo.listImages(id)]);
+    const [messages, images, profiles] = await Promise.all([
+      repo.listMessages(id),
+      repo.listImages(id),
+      repo.listProfiles(id),
+    ]);
     const last = images[images.length - 1];
     set({
       messages,
+      profiles,
       images,
       imageView: last ? { messageId: last.messageId, imageId: last.id } : null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
     });
   },
 
@@ -709,9 +743,12 @@ export const useStore = create<Store>((set, get) => ({
       activeCharacterId: charId,
       activeSessionId: session.id,
       messages: await repo.listMessages(session.id),
+      // 新会话从第 0 版（角色设定原文）开始，档案跟着这一段对话重新长
+      profiles: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
       drawer: null,
     });
   },
@@ -789,9 +826,11 @@ export const useStore = create<Store>((set, get) => ({
       activeSessionId: null,
       sessions: [],
       messages: [],
+      profiles: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
     });
     if (next) await get().selectCharacter(next.id);
     get().toast({ title: "空间已删除", variant: "default" });
@@ -880,18 +919,22 @@ export const useStore = create<Store>((set, get) => ({
     if (index < 0) return;
 
     const source = state.sessions.find((s) => s.id === activeSessionId);
+    // 只带走到这条消息为止的部分：后面的内容留在原会话里
+    const sliced = all.slice(0, index + 1);
     const session = await repo.branchSession({
       spaceId: activeSpaceId,
       characterId: activeCharacterId,
       title: branchTitle(source?.title),
-      // 只带走到这条消息为止的部分：后面的内容留在原会话里
-      messages: all.slice(0, index + 1),
+      messages: sliced,
     });
+    // 档案也跟着分支：分支点之前的版本一起带过去，之后各自演化
+    await repo.copyProfiles(activeSessionId, session.id, countRounds(sliced));
 
     set({
       sessions: await repo.listSessions(activeCharacterId),
       activeSessionId: session.id,
       messages: await repo.listMessages(session.id),
+      profiles: await repo.listProfiles(session.id),
       drawer: null,
     });
     get().toast({
@@ -920,6 +963,7 @@ export const useStore = create<Store>((set, get) => ({
         activeSessionId: sessionId,
         sessions: await repo.listSessions(characterId),
         messages: await repo.listMessages(sessionId),
+        profiles: [],
         images: [],
         imageView: null,
         imageRun: emptyImageRun,
@@ -1002,9 +1046,23 @@ export const useStore = create<Store>((set, get) => ({
     });
     if (!carry) void repo.pruneImages(activeSessionId);
 
+    /**
+     * 档案跟着聊天记录一起回退。
+     * 被重做的那一轮当时整理出来的版本已经过期（它合并的是旧回复 / 旧提问），
+     * 所以截到「上一轮」为止：重新生成这一轮、它再聊完时自然会整理出新的一版。
+     */
+    const roundsLeft = countRounds(get().messages);
+    await repo.trimProfiles(activeSessionId, Math.max(0, roundsLeft - 1));
+    const profiles = await repo.listProfiles(activeSessionId);
+    set({ profiles });
+
+    // 注入哪一版由「已经聊完几轮」决定：回头看旧消息、重新生成，都拿到当时那一版
+    const rounds = countRounds(history);
+    const snapshot = pickProfile(profiles, rounds);
+
     const assembled = assembleContext({
       space,
-      character,
+      character: { ...character, profile: snapshot?.content ?? "" },
       history,
       input,
       userName: state.settings.userName,
@@ -1139,6 +1197,9 @@ export const useStore = create<Store>((set, get) => ({
       // 重新生成时先删后插，消息行直到这一刻才存在：孤儿图在这里清才安全
       if (carry) void repo.pruneImages(activeSessionId);
       set({ sessions: await repo.listSessions(activeCharacterId) });
+      // 踩到整理间隔就整理一版档案：不 await —— 回复已经上屏，别让用户等这一步。
+      // 只认 done：中途停下的那半轮不算聊完，别拿它去合并档案
+      if (status === "done") void get().runProfile();
     };
 
     try {
@@ -1273,12 +1334,16 @@ export const useStore = create<Store>((set, get) => ({
     // 删掉的气泡，名下的图一起清：否则图库里会留下一堆没有落点的图
     await repo.pruneImages(sessionId);
     const messages = await repo.listMessages(sessionId);
+    // 删了消息，尾巴上的档案版本跟着作废：它合并的是已经不在的内容
+    await repo.trimProfiles(sessionId, Math.max(0, countRounds(messages) - 1));
+    const profiles = await repo.listProfiles(sessionId);
     const images = get().images.filter((img) => messages.some((m) => m.id === img.messageId));
     const view = get().imageView;
     const stillThere = view && images.some((img) => img.id === view.imageId);
     const last = images[images.length - 1];
     set({
       messages,
+      profiles,
       images,
       imageView: stillThere ? view : last ? { messageId: last.messageId, imageId: last.id } : null,
     });
@@ -1287,6 +1352,72 @@ export const useStore = create<Store>((set, get) => ({
   stop: () => {
     abortController?.abort();
     set((s) => ({ stream: { ...s.stream, running: false } }));
+  },
+
+  runProfile: async (options) => {
+    const state = get();
+    const sessionId = state.activeSessionId;
+    if (!sessionId || state.profileRun.running) return;
+    const character = state.characters.find((c) => c.id === state.activeCharacterId);
+    const space = state.spaces.find((s) => s.id === character?.spaceId);
+    if (!character || !space) return;
+
+    const config = space.profile;
+    const rounds = countRounds(state.messages);
+    // 自动触发要同时满足：开关开着、轮数正好踩在间隔上、这一轮还没整理过
+    if (!options?.manual) {
+      if (!config.enabled || !isProfileDue(rounds, config.every)) return;
+      const latest = state.profiles[state.profiles.length - 1];
+      if (latest && latest.round >= rounds) return;
+    }
+    if (rounds <= 0) return;
+
+    // 当前那一版（没有就用角色设定原文）既是合并的起点，也决定了只喂「上次之后」的对话
+    const current = pickProfile(state.profiles, rounds);
+    const currentText = profileText(character, current);
+    const transcript = transcriptOf(
+      messagesSinceRound(state.messages, current?.round ?? 0),
+      character.name,
+      state.settings.userName,
+    );
+
+    const outgoing = buildProfileMessages({
+      spacePrompt: space.systemPrompt,
+      characterName: character.name,
+      userName: state.settings.userName,
+      currentText,
+      transcript,
+      instruction: config.instruction,
+    });
+    const model = profileModelConfig(resolveModelConfig(state.settings));
+
+    set({ profileRun: { running: true, sessionId, error: null } });
+    try {
+      const response = await chatCompletion({ config: model, messages: outgoing });
+      const content = extractProfileText(response.content);
+      if (!content) throw new Error("回复里没有取到「角色档案」，这一版先跳过");
+      const saved = await repo.appendProfile({ sessionId, round: rounds, content });
+      if (get().activeSessionId === sessionId) {
+        set((s) => ({
+          // 同一轮重复整理时覆盖而不是叠两版
+          profiles: [...s.profiles.filter((item) => item.round !== saved.round), saved].sort(
+            (a, b) => a.round - b.round,
+          ),
+          profileRun: emptyProfileRun,
+        }));
+      } else {
+        set({ profileRun: emptyProfileRun });
+      }
+      get().toast({
+        title: `角色档案已更新 · 到第 ${rounds} 轮`,
+        description: "随后每轮都按这一版注入；回看更早的消息时仍用当时那一版",
+        variant: "success",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      set({ profileRun: { running: false, sessionId: null, error: message } });
+      get().toast({ title: "角色档案整理失败", description: message, variant: "error" });
+    }
   },
 
   exportData: () => repo.exportAll(),
@@ -1306,9 +1437,11 @@ export const useStore = create<Store>((set, get) => ({
       characters,
       sessions: [],
       messages: [],
+      profiles: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
       activeSpaceId: null,
       activeCharacterId: null,
       activeSessionId: null,
@@ -1339,9 +1472,11 @@ export const useStore = create<Store>((set, get) => ({
       characters,
       sessions: [],
       messages: [],
+      profiles: [],
       images: [],
       imageView: null,
       imageRun: emptyImageRun,
+      profileRun: emptyProfileRun,
       activeSpaceId: null,
       activeCharacterId: null,
       activeSessionId: null,

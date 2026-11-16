@@ -231,8 +231,10 @@ function quoteBareKeys(raw: string): string {
 /**
  * 由严到松地试解析：能过第 0 档就绝不动后面的档位，
  * 因为越往后的修补越可能改坏内容（全角标点、尾逗号、裸键名…）。
+ *
+ * 与生图无关，角色档案（`lib/profile.ts`）也复用这一条修复链。
  */
-function repairJson(raw: string, level: number): string {
+export function repairJson(raw: string, level: number): string {
   let text = raw;
   if (level >= 1) text = normalizeStructural(text);
   if (level >= 2) text = escapeBreaksInsideStrings(text);
@@ -285,7 +287,7 @@ function scrapePrompt(text: string): { prompt: string; start: number; end: numbe
 }
 
 /** 找到与 start 处 `{` 配对的 `}`，返回结束下标（不含）；不配对返回 -1 */
-function matchBrace(text: string, start: number): number {
+export function matchBrace(text: string, start: number): number {
   let depth = 0;
   let inString = false;
   let escape = false;

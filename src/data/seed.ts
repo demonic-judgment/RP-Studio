@@ -50,7 +50,6 @@ export const SEED_SPACES: SpaceSeed[] = [
       imageSeeds: [],
       contextBlocks: [
         { id: uid("blk"), kind: "system", enabled: true, label: "世界设定" },
-        { id: uid("blk"), kind: "character", enabled: true, label: "角色专属提示" },
         { id: uid("blk"), kind: "history", enabled: true, from: -14, to: -1, label: "历史对话" },
         {
           id: uid("blk"),
@@ -60,6 +59,8 @@ export const SEED_SPACES: SpaceSeed[] = [
           content: WUXIA_STYLE,
           label: "文风约束",
         },
+        // 档案压在提问前：这一刻这个人是什么状态，离当前这句话越近越有效
+        { id: uid("blk"), kind: "character", enabled: true, label: "角色档案" },
         { id: uid("blk"), kind: "user", enabled: true, label: "用户回复" },
       ],
       quickPhrases: [
@@ -106,7 +107,6 @@ export const SEED_SPACES: SpaceSeed[] = [
       imageSeeds: [],
       contextBlocks: [
         { id: uid("blk"), kind: "system", enabled: true, label: "世界设定" },
-        { id: uid("blk"), kind: "character", enabled: true, label: "角色专属提示" },
         { id: uid("blk"), kind: "history", enabled: true, from: -10, to: -1, label: "历史对话" },
         {
           id: uid("blk"),
@@ -116,6 +116,7 @@ export const SEED_SPACES: SpaceSeed[] = [
           content: "格式要求：在回复末尾用一行 `STATUS —` 开头输出一条舰船状态，保持冷峻的机械感。",
           label: "状态行",
         },
+        { id: uid("blk"), kind: "character", enabled: true, label: "角色档案" },
         { id: uid("blk"), kind: "user", enabled: true, label: "用户回复" },
       ],
       quickPhrases: [
@@ -150,8 +151,8 @@ export const SEED_SPACES: SpaceSeed[] = [
       imageSeeds: [],
       contextBlocks: [
         { id: uid("blk"), kind: "system", enabled: true, label: "世界设定" },
-        { id: uid("blk"), kind: "character", enabled: true, label: "角色专属提示" },
         { id: uid("blk"), kind: "history", enabled: true, from: -12, to: -1, label: "历史对话" },
+        { id: uid("blk"), kind: "character", enabled: true, label: "角色档案" },
         { id: uid("blk"), kind: "user", enabled: true, label: "用户回复" },
       ],
       quickPhrases: [

@@ -13,12 +13,19 @@ export function newBlockId() {
   return uid("blk");
 }
 
+/**
+ * 默认编排。顺序即最终消息顺序：
+ * 世界设定 → 生图预设 → 历史 → **角色档案** → 用户回复。
+ *
+ * 角色档案压在提问前：它是「此刻这个人是什么状态」，离当前这句话越近越有效，
+ * 也保证「用户回复」永远是最后一条。
+ */
 export function defaultContextBlocks(): ContextBlock[] {
   return [
     { id: newBlockId(), kind: "system", enabled: true, label: "空间系统提示" },
-    { id: newBlockId(), kind: "character", enabled: true, label: "角色专属提示" },
     { id: newBlockId(), kind: "image", enabled: true, content: DEFAULT_IMAGE_DIRECTIVE, label: "生图 JSON 预设" },
     { id: newBlockId(), kind: "history", enabled: true, from: -12, to: -1, label: "历史对话" },
+    { id: newBlockId(), kind: "character", enabled: true, label: "角色档案" },
     { id: newBlockId(), kind: "user", enabled: true, label: "用户回复" },
   ];
 }
@@ -105,20 +112,16 @@ export function ensureImageDirectiveBlock(blocks: ContextBlock[]): ContextBlock[
 }
 
 /**
- * 保证空间编排里能放「角色专属提示」。
- * 编排是空间级的、所有角色共用一份；没有这个块，角色的专属提示词就没有落点。
- * 老数据（迁移前的上下文数组）在读取时补一条，插在系统提示之后。
+ * 保证空间编排里能放「角色档案」。
+ * 编排是空间级的、所有角色共用一份；没有这个块，角色档案就没有落点。
+ * 老数据（迁移前的上下文数组）在读取时补一条，插在「用户回复」之前。
  */
 export function ensureCharacterBlock(blocks: ContextBlock[]): ContextBlock[] {
   if (blocks.some((block) => block.kind === "character")) return blocks;
   const next = [...blocks];
-  const at = next.findIndex((block) => block.kind === "system");
-  next.splice(at + 1, 0, {
-    id: newBlockId(),
-    kind: "character",
-    enabled: true,
-    label: "角色专属提示",
-  });
+  const block: ContextBlock = { id: newBlockId(), kind: "character", enabled: true, label: "角色档案" };
+  const userAt = next.findIndex((item) => item.kind === "user");
+  next.splice(userAt < 0 ? next.length : userAt, 0, block);
   return next;
 }
 
@@ -169,11 +172,12 @@ export function describeHistoryBlock(from: number, to: number): string {
  * 上下文装配：按块顺序产出 messages。
  * 连续同 role 的消息会被合并成一条，兼容要求严格交替的接口。
  *
- * 块来自 `space`（空间是编排的唯一持有者）；`character` 只贡献自己的名字与专属提示词。
+ * 块来自 `space`（空间是编排的唯一持有者）；`character` 只贡献自己的名字与档案。
  */
 export function assembleContext(params: {
   space: Pick<Space, "systemPrompt" | "contextBlocks">;
-  character: Pick<Character, "name" | "systemPrompt">;
+  /** `profile` 是当前该注入的那一版档案原文；不传（或为空）时退回角色设定原文 */
+  character: Pick<Character, "name" | "systemPrompt"> & { profile?: string };
   history: Message[] | ChatMessage[];
   input: string;
   userName?: string;
@@ -183,6 +187,10 @@ export function assembleContext(params: {
   const { space, character, history, input, userName = "你", imageEnabled = false } = params;
   const blocks = space.contextBlocks ?? [];
   const charVars = { char: character.name, user: userName };
+
+  // 有档案用档案，没有就用角色设定原文 —— 第 0 版就是用户自己写的那段
+  const archive = (character.profile ?? "").trim();
+  const characterText = archive || (character.systemPrompt ?? "").trim();
 
   const historyMessages: ChatMessage[] = history.map((m) => ({
     role: m.role,
@@ -196,19 +204,19 @@ export function assembleContext(params: {
   // 老编排里可能没有这两块：开关 / 有内容时也补一条，保证提示词一定在上下文里。
   // 位置放在空间系统提示之后（没有系统块就放在最前），别抢在设定前面。
   const needsCharacterFallback =
-    !blocks.some((block) => block.kind === "character") && Boolean(character.systemPrompt.trim());
+    !blocks.some((block) => block.kind === "character") && Boolean(characterText);
   let characterFallbackDone = !needsCharacterFallback;
   const pushCharacterFallback = () => {
     if (characterFallbackDone) return;
     characterFallbackDone = true;
-    const content = interpolate(character.systemPrompt, charVars).trim();
+    const content = interpolate(characterText, charVars).trim();
     if (!content) return;
     messages.push({ role: "system", content });
     trace.push({
       blockId: "character-fallback",
       kind: "character",
       count: 1,
-      note: `system · ${content.length} 字`,
+      note: `${archive ? "角色档案" : "角色设定"} · ${content.length} 字`,
     });
   };
 
@@ -250,14 +258,23 @@ export function assembleContext(params: {
         break;
       }
       case "character": {
-        const text = character.systemPrompt?.trim();
-        if (!text) {
-          trace.push({ blockId: block.id, kind: block.kind, count: 0, note: "当前角色未填写专属提示" });
+        if (!characterText) {
+          trace.push({
+            blockId: block.id,
+            kind: block.kind,
+            count: 0,
+            note: "当前角色既没有档案也没有设定",
+          });
           break;
         }
-        const content = interpolate(text, charVars);
+        const content = interpolate(characterText, charVars);
         messages.push({ role: "system", content });
-        trace.push({ blockId: block.id, kind: block.kind, count: 1, note: `system · ${text.length} 字` });
+        trace.push({
+          blockId: block.id,
+          kind: block.kind,
+          count: 1,
+          note: `${archive ? "角色档案" : "角色设定原文"} · ${content.length} 字`,
+        });
         break;
       }
       case "image": {
@@ -361,7 +378,7 @@ export function blockKindMeta(kind: ContextBlock["kind"] | string | undefined): 
     case "system":
       return { label: "空间系统提示", hint: "来自空间设置", tone: "bg-primary-container text-on-primary-container" };
     case "character":
-      return { label: "角色专属提示", hint: "来自当前角色", tone: "bg-primary-container text-on-primary-container" };
+      return { label: "角色档案", hint: "按会话演化", tone: "bg-primary-container text-on-primary-container" };
     case "history":
       return { label: "历史对话", hint: "下标可填负数", tone: "bg-surface-3 text-fg-muted" };
     case "custom":

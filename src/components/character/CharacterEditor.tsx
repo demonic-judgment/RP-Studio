@@ -227,7 +227,7 @@ export function CharacterEditor() {
 
           <Field
             label="角色设定"
-            hint="只对这个角色生效；会话首页会展示这段文字。空间共享的设定写在空间设置里"
+            hint="只对这个角色生效；会话首页会展示这段文字。它是角色档案的第 0 版——开了自动整理之后，后续版本在这段原文上逐轮演化，原文一直留在这里当起点"
           >
             <Textarea
               value={draft.systemPrompt}

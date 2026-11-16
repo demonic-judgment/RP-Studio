@@ -14,11 +14,13 @@ import {
 import { useStore } from "../../lib/store";
 import { validateWorkflow } from "../../lib/workflow";
 import { prepareReferenceImage } from "../../lib/image";
-import type { ContextBlock, QuickPhrase, Space } from "../../lib/types";
+import { countRounds, pickProfile } from "../../lib/profile";
+import type { ContextBlock, ProfileConfig, QuickPhrase, Space } from "../../lib/types";
 import { cn, uid } from "../../lib/utils";
 import { Drawer, DrawerHeader } from "../ui/Drawer";
 import { Button, IconButton } from "../ui/Button";
 import { Field, Input, Textarea, Switch } from "../ui/Form";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "../motion/select";
 import { Tabs } from "../ui/Tabs";
 import { ContextEditor } from "../character/ContextEditor";
 import { CharacterAvatar, characterSeed } from "../character/CharacterAvatar";
@@ -28,6 +30,9 @@ import { WorkflowEditor } from "../workflow/WorkflowEditor";
 type TabId = "basic" | "characters" | "context" | "workflow" | "script" | "phrases";
 
 const AVATARS = ["🎭", "🌧️", "🏮", "🛰️", "🕯️", "🗡️", "🏙️", "🌊", "🐉", "🧝", "🧛", "🕵️", "🤖", "🦊", "🌸", "👑"];
+
+/** 档案整理间隔的可选档位：2~20 轮够覆盖「贴得很紧」到「几乎不整理」两头 */
+const PROFILE_INTERVALS = [2, 3, 4, 5, 6, 8, 10, 12, 15, 20];
 
 /** 存之前去掉空槽；列表本身保持用户上传的顺序 */
 function trimSeeds(seeds: string[]): string[] {
@@ -45,6 +50,9 @@ export function SpaceDrawer() {
   const characters = useStore((s) => s.characters);
   const activeCharacterId = useStore((s) => s.activeCharacterId);
   const messages = useStore((s) => s.messages);
+  const profiles = useStore((s) => s.profiles);
+  const profileRun = useStore((s) => s.profileRun);
+  const runProfile = useStore((s) => s.runProfile);
   // 只订用得到的几个字段：订整份 settings 的话，设置抽屉里拖滑杆、改称呼
   // 都会把这个抽屉整棵树重渲染一遍（哪怕它是关着的）。
   const userName = useStore((s) => s.settings.userName);
@@ -98,6 +106,12 @@ export function SpaceDrawer() {
 
   const seeds = trimSeeds(draft.imageSeeds);
 
+  // 老空间可能存着档位表之外的间隔（早先是个自由输入的数字）：补进选项里，别让下拉框显示空白
+  const profileEvery = draft.profile.every;
+  const intervalOptions = PROFILE_INTERVALS.includes(profileEvery)
+    ? PROFILE_INTERVALS
+    : [...PROFILE_INTERVALS, profileEvery].sort((a, b) => a - b);
+
   const handleSeedUpload = async (files: FileList | null) => {
     const picked = Array.from(files ?? []);
     if (!picked.length) return;
@@ -139,6 +153,7 @@ export function SpaceDrawer() {
         quickPhrases: draft.quickPhrases,
         workflow: draft.workflow,
         script: draft.script,
+        profile: draft.profile,
       });
     } finally {
       setSaving(false);
@@ -225,6 +240,37 @@ export function SpaceDrawer() {
 
               <Field label="空间名">
                 <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} />
+              </Field>
+
+              <Field
+                label="角色档案整理"
+                hint="角色聊着聊着会变：每聊满这么多轮，把这段对话与当前档案合并成新的一版，之后的回复都按最新那版来。间隔短更贴合此刻的状态，也更费 token；这一项在「上下文」里打开自动整理后才生效"
+              >
+                <div className="flex items-center gap-2">
+                  <Select
+                    value={String(profileEvery)}
+                    onValueChange={(value) =>
+                      patch({ profile: { ...draft.profile, every: Number(value) } })
+                    }
+                    className="w-[132px]"
+                  >
+                    <SelectTrigger className="h-9 rounded-xl border-0 bg-surface-2 px-3 py-0 text-[12.5px] hover:bg-surface-3 focus-visible:ring-4 focus-visible:ring-[var(--ring)]/15">
+                      <span>每 {profileEvery} 轮</span>
+                    </SelectTrigger>
+                    <SelectContent className="border-0 shadow-float">
+                      {/* beUI 的 select 面板本身不限高（只有 overflow-hidden）：选项一多就顶出可视区。
+                          这里按它家 command palette 的做法给列表加个滚动容器，滚动条用本项目自带的那套。 */}
+                      <div className="max-h-[248px] overflow-y-auto overscroll-contain">
+                        {intervalOptions.map((n) => (
+                          <SelectItem key={n} value={String(n)} className="rounded-[9px] text-[12.5px]">
+                            {`${n} 轮`}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-[12px] text-fg-muted">整理一次</span>
+                </div>
               </Field>
 
               <Field
@@ -410,6 +456,19 @@ export function SpaceDrawer() {
               character={character}
               blocks={draft.contextBlocks}
               onChange={(contextBlocks: ContextBlock[]) => patch({ contextBlocks })}
+              onProfileChange={(next: Partial<ProfileConfig>) =>
+                patch({ profile: { ...draft.profile, ...next } })
+              }
+              activeProfile={pickProfile(profiles, countRounds(messages))}
+              onRunProfile={() =>
+                void (async () => {
+                  // 先落盘再整理：抽屉里改的指令 / 间隔还没保存时，
+                  // 后台读的是库里那份，会对不上眼前这段文字
+                  await save();
+                  await runProfile({ manual: true });
+                })()
+              }
+              profileRunning={profileRun.running}
               history={messages}
               userName={userName}
               imageEnabled={imageEnabled}

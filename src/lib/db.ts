@@ -10,13 +10,23 @@ import type { PGlite } from "@electric-sql/pglite";
  */
 type PGliteCtor = typeof import("@electric-sql/pglite").PGlite;
 
-let instance: PGlite | null = null;
-let readyPromise: Promise<PGlite> | null = null;
+/**
+ * 实例挂在 globalThis 上而不是模块变量里：开发时热替换会重新执行这个文件，模块变量跟着重置，
+ * 于是新旧两个 PGlite 同时指向同一个 `idb://rp-studio` —— 它们会在提交迁移时互相踩，
+ * 留下「`schema_meta` 到了新版本、表却没建出来」的半截库。挂着复用同一个实例，
+ * 真正的页面刷新才会重建（那时旧实例已随页面销毁，不会并存）。
+ */
+const DB_SLOT_KEY = "__rpStudioDb";
+type DbSlot = { instance: PGlite | null; ready: Promise<PGlite> | null };
+const slot: DbSlot = ((globalThis as unknown as Record<string, DbSlot>)[DB_SLOT_KEY] ??= {
+  instance: null,
+  ready: null,
+});
 
 /** 只能在 initDb() 之后调用；之前的数据库调用都是 bug，直接报出来 */
 export function getDb(): PGlite {
-  if (!instance) throw new Error("数据库尚未初始化");
-  return instance;
+  if (!slot.instance) throw new Error("数据库尚未初始化");
+  return slot.instance;
 }
 
 async function createDb(): Promise<PGlite> {
@@ -24,7 +34,69 @@ async function createDb(): Promise<PGlite> {
   return new Ctor("idb://rp-studio");
 }
 
-const MIGRATIONS: { version: number; sql: string }[] = [
+/**
+ * 角色档案的表结构：加列 / 建表 / 建索引，全部 `if not exists`，重复执行无副作用。
+ * v8 建它、v9 补齐它、`initDb` 的启动兜底也补它 —— 三处共用同一段，改结构只改这里。
+ */
+const PROFILE_DDL = `
+  alter table spaces add column if not exists profile jsonb not null default '{}'::jsonb;
+
+  create table if not exists profiles (
+    id uuid primary key,
+    session_id uuid not null references sessions(id) on delete cascade,
+    round int not null default 0,
+    content text not null default '',
+    created_at timestamptz not null default now()
+  );
+
+  create index if not exists idx_profiles_session on profiles(session_id, round asc);
+`;
+
+/**
+ * 把编排里的「角色档案」块挪到「用户回复」之前：档案是这一刻的状态，
+ * 放在提问前读到的最后一段 system 里最有效，也让「用户回复」永远是最后一条。
+ * 没有 user 块就落到末尾；重排后位置不再变化，重复执行是幂等的。
+ */
+const PROFILE_BLOCK_ORDER = `
+  update spaces s
+     set context_blocks = sub.blocks
+    from (
+      select space.id,
+             (select jsonb_agg(item.elem order by item.ord)
+                from (
+                  select elem, ord
+                    from jsonb_array_elements(space.context_blocks) with ordinality as a(elem, ord)
+                   where elem->>'kind' <> 'character'
+                  union all
+                  select c.elem,
+                         coalesce(
+                           (select min(b.ord)
+                              from jsonb_array_elements(space.context_blocks) with ordinality as b(elem2, ord)
+                             where elem2->>'kind' = 'user'),
+                           jsonb_array_length(space.context_blocks) + 1
+                         ) - 0.5
+                    from (
+                      select elem
+                        from jsonb_array_elements(space.context_blocks) with ordinality as x(elem, ord)
+                       where elem->>'kind' = 'character'
+                       limit 1
+                    ) c
+                ) item
+             ) as blocks
+        from spaces space
+    ) sub
+   where sub.id = s.id
+     and jsonb_typeof(s.context_blocks) = 'array'
+     and exists (
+       select 1 from jsonb_array_elements(s.context_blocks) as e where e->>'kind' = 'character'
+     );
+`;
+
+/**
+ * 迁移清单：按 version 递增，每条在自己的事务里跑完才写 `schema_meta.version`。
+ * 导出是为了能在 Node 里用内存 PGlite 跑一遍（见 README「迁移怎么验」），应用内只由 `initDb` 使用。
+ */
+export const MIGRATIONS: { version: number; sql: string }[] = [
   {
     version: 1,
     sql: `
@@ -238,12 +310,34 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       alter table spaces drop column if exists description;
     `,
   },
+  {
+    /**
+     * v8：角色设定升级成「角色档案」。
+     * - `profiles` 一表一版：`round` 是它覆盖到的轮数，0 那一版不落库（直接用角色设定原文），
+     *   所以一个会话的档案就是这张表里按 round 递增的若干行；截断历史时按 round 往回删。
+     * - 空间多一份 `profile` 配置（开关 / 每 N 轮 / 合并指令）。
+     * - 编排里的「角色档案」块挪到「用户回复」之前（见 `PROFILE_BLOCK_ORDER`）。
+     */
+    version: 8,
+    sql: `${PROFILE_DDL}${PROFILE_BLOCK_ORDER}`,
+  },
+  {
+    /**
+     * v9：把 v8 的建表再跑一遍。
+     * PGlite 的数据目录在 IndexedDB 上，页面在提交途中重载、或者两个标签同时初始化同一个
+     * `idb://`，都可能留下「`schema_meta` 已经是 8、`profiles` 表却没有」的半截状态。
+     * 迁移只按版本号决定跑不跑，不会自己发现这种不一致，于是启动后第一次查档案就炸。
+     * 这条的存在意义就是补回来：DDL 全是 `if not exists`，跑在有表的库上什么也不做。
+     */
+    version: 9,
+    sql: `${PROFILE_DDL}${PROFILE_BLOCK_ORDER}`,
+  },
 ];
 
 export async function initDb(): Promise<PGlite> {
-  if (readyPromise) return readyPromise;
-  readyPromise = (async () => {
-    const db = instance ?? (instance = await createDb());
+  if (slot.ready) return slot.ready;
+  slot.ready = (async () => {
+    const db = slot.instance ?? (slot.instance = await createDb());
     await db.waitReady;
     await db.exec(`
       create table if not exists schema_meta (
@@ -258,20 +352,45 @@ export async function initDb(): Promise<PGlite> {
 
     for (const migration of MIGRATIONS) {
       if (migration.version <= current) continue;
-      await db.transaction(async (tx) => {
-        await tx.exec(migration.sql);
-        await tx.query("update schema_meta set version = $1 where id = 1", [migration.version]);
-      });
+      try {
+        await db.transaction(async (tx) => {
+          await tx.exec(migration.sql);
+          await tx.query("update schema_meta set version = $1 where id = 1", [migration.version]);
+        });
+      } catch (err) {
+        // 失败时把版本号带出来：启动页只有一行错误文案，不标版本基本查不出是哪一步
+        const detail = err instanceof Error ? err.message : String(err);
+        throw new Error(`迁移 v${migration.version} 失败：${detail}`);
+      }
       current = migration.version;
     }
+
+    // 版本号可能比库里的结构「新」——提交到一半被重载、两个标签同时初始化同一个 idb://
+    // 都会留下这种半截状态。迁移只按版本号跑，不会自己发现，所以按真实结构兜一次。
+    await ensureProfileSchema(db);
     return db;
   })();
-  return readyPromise;
+  return slot.ready;
+}
+
+/** 启动兜底：以实际结构为准，缺表 / 缺列就补（DDL 幂等，跑在有表的库上不用做事） */
+async function ensureProfileSchema(db: PGlite): Promise<void> {
+  const { rows } = await db.query<{ hasTable: boolean; hasColumn: boolean }>(
+    `select to_regclass('public.profiles') is not null as "hasTable",
+            exists (
+              select 1 from information_schema.columns
+               where table_schema = 'public' and table_name = 'spaces' and column_name = 'profile'
+            ) as "hasColumn"`,
+  );
+  const shape = rows[0];
+  if (shape?.hasTable && shape?.hasColumn) return;
+  await db.exec(PROFILE_DDL);
 }
 
 export async function resetDatabase(): Promise<void> {
   const db = getDb();
   await db.exec(`
+    drop table if exists profiles cascade;
     drop table if exists images cascade;
     drop table if exists messages cascade;
     drop table if exists sessions cascade;
@@ -280,6 +399,6 @@ export async function resetDatabase(): Promise<void> {
     drop table if exists settings cascade;
     drop table if exists schema_meta cascade;
   `);
-  readyPromise = null;
+  slot.ready = null;
   await initDb();
 }
